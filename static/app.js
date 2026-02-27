@@ -12,7 +12,7 @@ const tpl = document.getElementById("eventTpl");
 function impactText(v) {
   if (v === "bullish") return "利好";
   if (v === "bearish") return "利空";
-  return "中性/分化";
+  return "";
 }
 
 function toLocal(ts) {
@@ -25,11 +25,14 @@ function toLocal(ts) {
 function renderEvents(items) {
   eventListEl.innerHTML = "";
   for (const item of items) {
+    if (item.impact !== "bullish" && item.impact !== "bearish") {
+      continue;
+    }
     const node = tpl.content.firstElementChild.cloneNode(true);
     node.querySelector(".source").textContent = item.source_name;
     const impactEl = node.querySelector(".impact");
     impactEl.textContent = impactText(item.impact);
-    impactEl.classList.add(item.impact || "mixed");
+    impactEl.classList.add(item.impact);
     node.querySelector(".confidence").textContent = `置信度 ${item.confidence}`;
     node.querySelector(".title").textContent = item.title;
     node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
