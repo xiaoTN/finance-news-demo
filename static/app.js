@@ -25,14 +25,17 @@ function toLocal(ts) {
 function renderEvents(items) {
   eventListEl.innerHTML = "";
   for (const item of items) {
-    if (item.impact !== "bullish" && item.impact !== "bearish") {
-      continue;
-    }
     const node = tpl.content.firstElementChild.cloneNode(true);
     node.querySelector(".source").textContent = item.source_name;
     const impactEl = node.querySelector(".impact");
-    impactEl.textContent = impactText(item.impact);
-    impactEl.classList.add(item.impact);
+    const impact = impactText(item.impact);
+    impactEl.textContent = impact;
+    if (impact) {
+      impactEl.classList.add(item.impact);
+      impactEl.style.display = "inline";
+    } else {
+      impactEl.style.display = "none";
+    }
     node.querySelector(".confidence").textContent = `置信度 ${item.confidence}`;
     node.querySelector(".title").textContent = item.title;
     node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
