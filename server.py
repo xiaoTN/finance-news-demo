@@ -165,7 +165,12 @@ class Analyzer:
 
     def analyze(self, title: str, summary: str, persons: list[str], tickers: list[str]) -> dict[str, Any]:
         if not self.cfg.api_key:
-            return self._unknown_analysis(title=title, summary=summary, reason="未配置大模型 API Key，无法判断")
+            return self._unknown_analysis(
+                title=title,
+                summary=summary,
+                reason="未配置大模型 API Key，无法判断",
+                detail=f"API_KEY is empty; MODEL={self.cfg.model}; BASE_URL={self.cfg.base_url}",
+            )
 
         prompt = {
             "task": "You are a buy-side analyst assistant. Return strict JSON only.",
@@ -185,23 +190,35 @@ class Analyzer:
         }
 
         try:
-            data = self._call_model(prompt)
+            data, raw_content = self._call_model(prompt)
             if data and all(k in data for k in ["summary", "impact", "why", "horizon", "confidence"]):
                 return data
-        except Exception:
-            return self._unknown_analysis(title=title, summary=summary, reason="模型调用失败，无法判断")
-        return self._unknown_analysis(title=title, summary=summary, reason="模型返回无效，无法判断")
+            missing = [k for k in ["summary", "impact", "why", "horizon", "confidence"] if k not in (data or {})]
+            return self._unknown_analysis(
+                title=title,
+                summary=summary,
+                reason="模型返回无效，无法判断",
+                detail=f"Missing keys: {missing}; raw_content={raw_content[:1200]}",
+            )
+        except Exception as e:
+            return self._unknown_analysis(
+                title=title,
+                summary=summary,
+                reason="模型调用失败，无法判断",
+                detail=str(e)[:2000],
+            )
 
-    def _unknown_analysis(self, title: str, summary: str, reason: str) -> dict[str, Any]:
+    def _unknown_analysis(self, title: str, summary: str, reason: str, detail: str = "") -> dict[str, Any]:
         return {
             "summary": normalize_text(summary)[:280] or normalize_text(title),
             "impact": "mixed",
             "why": reason,
+            "error_detail": detail,
             "horizon": "intraday",
             "confidence": 0,
         }
 
-    def _call_model(self, prompt: dict[str, Any]) -> dict[str, Any] | None:
+    def _call_model(self, prompt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         url = f"{self.cfg.base_url}/chat/completions"
         body = {
             "model": self.cfg.model,
@@ -222,10 +239,21 @@ class Analyzer:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        content = payload["choices"][0]["message"]["content"]
-        return safe_json_loads(content)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"HTTP {e.code} {e.reason}; body={err_body[:1200]}")
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Network error: {e.reason}")
+        content = ""
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except Exception:
+            preview = json.dumps(payload, ensure_ascii=False)[:1200]
+            raise RuntimeError(f"Invalid response payload: {preview}")
+        return safe_json_loads(content), content
 
 
 class Repo:
@@ -256,12 +284,16 @@ class Repo:
                   tickers TEXT,
                   impact TEXT,
                   why TEXT,
+                  error_detail TEXT,
                   horizon TEXT,
                   confidence INTEGER,
                   unique_key TEXT NOT NULL UNIQUE
                 )
                 """
             )
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
+            if "error_detail" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN error_detail TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_captured ON events(captured_at DESC)")
 
     def insert_event(self, event: dict[str, Any]) -> bool:
@@ -271,8 +303,8 @@ class Repo:
                     """
                     INSERT INTO events (
                       source_name,title,url,published_at,captured_at,summary,persons,tickers,
-                      impact,why,horizon,confidence,unique_key
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                      impact,why,error_detail,horizon,confidence,unique_key
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         event["source_name"],
@@ -285,6 +317,7 @@ class Repo:
                         json.dumps(event.get("tickers", []), ensure_ascii=False),
                         event.get("impact", "mixed"),
                         event.get("why", ""),
+                        event.get("error_detail", ""),
                         event.get("horizon", "intraday"),
                         int(event.get("confidence", 50)),
                         event["unique_key"],
@@ -314,6 +347,7 @@ class Repo:
                     "tickers": safe_json_loads(r["tickers"]) or [],
                     "impact": r["impact"],
                     "why": r["why"],
+                    "error_detail": r["error_detail"] or "",
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
                 }
@@ -366,6 +400,7 @@ class Collector:
                     "tickers": tickers,
                     "impact": ai.get("impact", "mixed"),
                     "why": ai.get("why", ""),
+                    "error_detail": ai.get("error_detail", ""),
                     "horizon": ai.get("horizon", "intraday"),
                     "confidence": int(ai.get("confidence", 50)),
                     "unique_key": f"{src['name']}|{url}",
@@ -406,6 +441,7 @@ class Collector:
                 "tickers": tickers,
                 "impact": ai.get("impact", "mixed"),
                 "why": ai.get("why", ""),
+                "error_detail": ai.get("error_detail", ""),
                 "horizon": ai.get("horizon", "intraday"),
                 "confidence": int(ai.get("confidence", 50)),
                 "unique_key": f"mock_tweet|{person}|{int(time.time())}|{seen}",
@@ -446,6 +482,7 @@ class Collector:
             "tickers": tickers,
             "impact": ai.get("impact", "mixed"),
             "why": ai.get("why", ""),
+            "error_detail": ai.get("error_detail", ""),
             "horizon": ai.get("horizon", "intraday"),
             "confidence": int(ai.get("confidence", 50)),
             "unique_key": f"mock_tweet|custom|{person}|{int(time.time() * 1000)}",

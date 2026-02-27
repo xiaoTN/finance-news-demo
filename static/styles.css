@@ -186,6 +186,14 @@ button:last-child {
   font-size: 14px;
 }
 
+.copy-error-btn {
+  background: #4a5568;
+  margin: 2px 0 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
 .meta {
   color: var(--muted);
   font-size: 12px;

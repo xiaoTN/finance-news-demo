@@ -22,6 +22,23 @@ function toLocal(ts) {
   return d.toLocaleString();
 }
 
+async function copyText(text) {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
 function renderEvents(items) {
   eventListEl.innerHTML = "";
   for (const item of items) {
@@ -40,6 +57,27 @@ function renderEvents(items) {
     node.querySelector(".title").textContent = item.title;
     node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
     node.querySelector(".why").textContent = `原因：${item.why || "-"}`;
+    const errorDetail = (item.error_detail || "").trim();
+    const copyBtn = node.querySelector(".copy-error-btn");
+    if (errorDetail) {
+      copyBtn.hidden = false;
+      copyBtn.addEventListener("click", async () => {
+        const detail = [
+          `title=${item.title || ""}`,
+          `source=${item.source_name || ""}`,
+          `time=${item.captured_at || ""}`,
+          `model_error=${errorDetail}`,
+        ].join("\n");
+        try {
+          await copyText(detail);
+          statusEl.textContent = "失败详情已复制";
+        } catch (e) {
+          statusEl.textContent = `复制失败: ${e.message}`;
+        }
+      });
+    } else {
+      copyBtn.hidden = true;
+    }
     const persons = (item.persons || []).join(", ") || "无";
     const tickers = (item.tickers || []).join(", ") || "无";
     node.querySelector(".meta").textContent = `人物: ${persons} | 标的: ${tickers} | 周期: ${item.horizon} | 抓取时间: ${toLocal(item.captured_at)}`;
