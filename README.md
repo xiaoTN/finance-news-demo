@@ -7,7 +7,7 @@
 - 多源抓取（RSS + 官网 JSON 优先，避免反爬和付费墙）
 - 关键词/实体识别（Trump, Musk, Jensen Huang, Powell 等）
 - 影响标的映射（TSLA/NVDA/SPY/QQQ/XLE/XLF/DXY 等）
-- AI 分析（OpenAI 或 Gemini，可二选一）
+- AI 分析（OpenAI-compatible Chat Completions）
 - 无 API Key 时，自动使用本地规则分析（可离线演示）
 - 实时看板（最近事件流 + 影响榜单）
 
@@ -31,16 +31,9 @@ cp .env.example .env
 然后编辑 `.env`：
 
 ```bash
-# 选择模型提供方：openai 或 gemini
-AI_PROVIDER=openai
-
-# OpenAI
-OPENAI_API_KEY=xxxx
-OPENAI_MODEL=gpt-4o-mini
-
-# Gemini
-GEMINI_API_KEY=xxxx
-GEMINI_MODEL=gemini-2.0-flash
+MODEL=gpt-4o-mini
+API_KEY=xxxx
+BASE_URL=https://api.openai.com/v1
 ```
 
 如果不配置 Key，系统会输出“无法判断”（`impact=mixed, confidence=0`），不再使用规则引擎。

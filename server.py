@@ -220,22 +220,17 @@ def rule_based_analysis(title: str, summary: str, persons: list[str], tickers: l
 
 @dataclass
 class ModelConfig:
-    provider: str
+    base_url: str
     api_key: str
     model: str
 
 
 class Analyzer:
     def __init__(self) -> None:
-        provider = os.getenv("AI_PROVIDER", "openai").strip().lower()
-        if provider == "gemini":
-            model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-            key = os.getenv("GEMINI_API_KEY", "")
-        else:
-            provider = "openai"
-            model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-            key = os.getenv("OPENAI_API_KEY", "")
-        self.cfg = ModelConfig(provider=provider, api_key=key, model=model)
+        base_url = os.getenv("BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
+        model = os.getenv("MODEL", "gpt-4o-mini").strip()
+        key = os.getenv("API_KEY", "").strip()
+        self.cfg = ModelConfig(base_url=base_url, api_key=key, model=model)
 
     def analyze(self, title: str, summary: str, persons: list[str], tickers: list[str]) -> dict[str, Any]:
         if not self.cfg.api_key:
@@ -259,10 +254,7 @@ class Analyzer:
         }
 
         try:
-            if self.cfg.provider == "openai":
-                data = self._call_openai(prompt)
-            else:
-                data = self._call_gemini(prompt)
+            data = self._call_model(prompt)
             if data and all(k in data for k in ["summary", "impact", "why", "horizon", "confidence"]):
                 return data
         except Exception:
@@ -278,8 +270,8 @@ class Analyzer:
             "confidence": 0,
         }
 
-    def _call_openai(self, prompt: dict[str, Any]) -> dict[str, Any] | None:
-        url = "https://api.openai.com/v1/chat/completions"
+    def _call_model(self, prompt: dict[str, Any]) -> dict[str, Any] | None:
+        url = f"{self.cfg.base_url}/chat/completions"
         body = {
             "model": self.cfg.model,
             "messages": [
@@ -303,33 +295,6 @@ class Analyzer:
             payload = json.loads(resp.read().decode("utf-8"))
         content = payload["choices"][0]["message"]["content"]
         return safe_json_loads(content)
-
-    def _call_gemini(self, prompt: dict[str, Any]) -> dict[str, Any] | None:
-        q = urllib.parse.urlencode({"key": self.cfg.api_key})
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg.model}:generateContent?{q}"
-        body = {
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "text": "Return JSON only with keys: summary, impact, why, horizon, confidence.\\n"
-                            + json.dumps(prompt, ensure_ascii=False)
-                        }
-                    ]
-                }
-            ],
-            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
-        }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json", "User-Agent": USER_AGENT},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-        text = payload["candidates"][0]["content"]["parts"][0]["text"]
-        return safe_json_loads(text)
 
 
 class Repo:
@@ -673,7 +638,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
-            self._send_json({"ok": True, "time": utc_now_iso(), "provider": analyzer.cfg.provider})
+            self._send_json(
+                {"ok": True, "time": utc_now_iso(), "model": analyzer.cfg.model, "base_url": analyzer.cfg.base_url}
+            )
             return
         if parsed.path == "/api/sources":
             self._send_json({"sources": SOURCES})
@@ -742,5 +709,5 @@ if __name__ == "__main__":
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Server running at http://{HOST}:{PORT}")
-    print(f"AI provider: {analyzer.cfg.provider} model={analyzer.cfg.model}")
+    print(f"AI model: {analyzer.cfg.model} base_url={analyzer.cfg.base_url}")
     httpd.serve_forever()
