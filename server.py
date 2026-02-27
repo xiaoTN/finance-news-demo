@@ -120,6 +120,21 @@ def utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def load_env_file(path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip().strip("'").strip('"')
+        os.environ.setdefault(key, value)
+
+
 def http_get(url: str, timeout: int = 15) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -588,6 +603,8 @@ class Collector:
             items.append({"title": title, "url": link, "summary": summary, "published_at": pub})
         return items
 
+
+load_env_file(BASE_DIR / ".env")
 
 repo = Repo(DB_PATH)
 analyzer = Analyzer()

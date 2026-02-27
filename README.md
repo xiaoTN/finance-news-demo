@@ -20,19 +20,27 @@ python3 server.py
 
 访问：<http://127.0.0.1:8787>
 
-## 环境变量（可选）
+## 服务端配置（推荐）
+
+服务端启动时会自动读取项目根目录的 `.env` 文件（仅服务端可见）。
+
+```bash
+cp .env.example .env
+```
+
+然后编辑 `.env`：
 
 ```bash
 # 选择模型提供方：openai 或 gemini
-export AI_PROVIDER=openai
+AI_PROVIDER=openai
 
 # OpenAI
-export OPENAI_API_KEY=xxxx
-export OPENAI_MODEL=gpt-4o-mini
+OPENAI_API_KEY=xxxx
+OPENAI_MODEL=gpt-4o-mini
 
 # Gemini
-export GEMINI_API_KEY=xxxx
-export GEMINI_MODEL=gemini-2.0-flash
+GEMINI_API_KEY=xxxx
+GEMINI_MODEL=gemini-2.0-flash
 ```
 
 如果不配置 Key，系统会输出“无法判断”（`impact=mixed, confidence=0`），不再使用规则引擎。
