@@ -94,6 +94,11 @@ def utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def log(msg: str) -> None:
+    ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
 def load_env_file(path: Path) -> None:
     if not path.exists() or not path.is_file():
         return
@@ -503,12 +508,29 @@ collector = Collector(repo, analyzer)
 
 
 def auto_refresh_loop() -> None:
+    log(f"Auto refresh loop started: interval={REFRESH_SECONDS}s")
     while True:
         try:
-            collector.fetch_all()
-        except Exception:
+            started = time.time()
+            result = collector.fetch_all()
+            elapsed = round(time.time() - started, 2)
+            log(f"Auto refresh done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
+        except Exception as e:
+            log(f"Auto refresh failed: {e}")
             traceback.print_exc()
         time.sleep(REFRESH_SECONDS)
+
+
+def boot_fetch_once() -> None:
+    try:
+        log("Boot fetch started")
+        started = time.time()
+        result = collector.fetch_all()
+        elapsed = round(time.time() - started, 2)
+        log(f"Boot fetch done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
+    except Exception as e:
+        log(f"Boot fetch failed: {e}")
+        traceback.print_exc()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -565,7 +587,13 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
             self._send_json(
-                {"ok": True, "time": utc_now_iso(), "model": analyzer.cfg.model, "base_url": analyzer.cfg.base_url}
+                {
+                    "ok": True,
+                    "time": utc_now_iso(),
+                    "model": analyzer.cfg.model,
+                    "base_url": analyzer.cfg.base_url,
+                    "api_key_configured": bool(analyzer.cfg.api_key),
+                }
             )
             return
         if parsed.path == "/api/sources":
@@ -624,16 +652,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    t = threading.Thread(target=auto_refresh_loop, daemon=True)
-    t.start()
-
-    # boot fetch to populate initial rows
-    try:
-        collector.fetch_all()
-    except Exception:
-        traceback.print_exc()
+    log(f"Loading config: MODEL={analyzer.cfg.model} BASE_URL={analyzer.cfg.base_url}")
+    if not analyzer.cfg.api_key:
+        log("WARNING: API_KEY is empty; analysis will return '无法判断'")
+    if "/anthropic" in analyzer.cfg.base_url and not analyzer.cfg.base_url.endswith("/v1"):
+        log("WARNING: BASE_URL looks non OpenAI-compatible. Expected a Chat Completions base URL (usually ends with /v1).")
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Server running at http://{HOST}:{PORT}")
-    print(f"AI model: {analyzer.cfg.model} base_url={analyzer.cfg.base_url}")
+    log(f"HTTP server listening on http://{HOST}:{PORT}")
+
+    auto_thread = threading.Thread(target=auto_refresh_loop, daemon=True)
+    auto_thread.start()
+
+    boot_thread = threading.Thread(target=boot_fetch_once, daemon=True)
+    boot_thread.start()
+
     httpd.serve_forever()
