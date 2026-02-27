@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>金融新闻 AI 分析 Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>金融新闻 AI 分析 Demo</h1>
+        <p id="status">正在加载...</p>
+      </div>
+      <div class="actions">
+        <button id="refreshBtn">立即抓取</button>
+        <button id="mockTweetsBtn">推特测试</button>
+        <button id="reloadBtn">刷新列表</button>
+        <button id="clearBtn">清空数据</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>影响标的榜</h2>
+        <div id="tickerBoard" class="chips"></div>
+      </section>
+
+      <section class="panel">
+        <h2>最新事件流</h2>
+        <div id="eventList" class="events"></div>
+      </section>
+    </main>
+
+    <template id="eventTpl">
+      <article class="event">
+        <div class="event-head">
+          <span class="source"></span>
+          <span class="impact"></span>
+          <span class="confidence"></span>
+        </div>
+        <h3 class="title"></h3>
+        <p class="summary"></p>
+        <p class="why"></p>
+        <div class="meta"></div>
+        <a class="link" target="_blank" rel="noreferrer">查看原文</a>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
