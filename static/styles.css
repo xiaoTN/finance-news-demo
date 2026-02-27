@@ -73,6 +73,48 @@ button:last-child {
   gap: 14px;
 }
 
+.mock-form-wrap {
+  max-width: 1100px;
+  margin: 12px auto 0;
+  padding: 0 14px;
+}
+
+.mock-form-wrap h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.mock-form {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.mock-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mock-form select,
+.mock-form input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 14px;
+}
+
+.mock-form .mock-text {
+  min-width: 0;
+}
+
 .panel {
   background: var(--card);
   border: 1px solid var(--line);
@@ -180,5 +222,10 @@ button:last-child {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .mock-form {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }

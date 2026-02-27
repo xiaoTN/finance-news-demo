@@ -42,6 +42,7 @@ export GEMINI_MODEL=gemini-2.0-flash
 - `GET /api/health` 健康检查
 - `POST /api/refresh` 立即抓取并分析一轮
 - `POST /api/mock_tweets` 注入 4 位关键人物的模拟推特事件（用于演示）
+  - 可选 JSON body：`{"person":"Elon Musk","text":"自定义动态内容"}`，用于模拟指定人物发布动态
 - `POST /api/clear_events` 清空本地事件数据（演示重置）
 - `GET /api/events?limit=50` 最近事件
 - `GET /api/sources` 当前抓取源

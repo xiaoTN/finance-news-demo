@@ -3,6 +3,9 @@ const refreshBtn = document.getElementById("refreshBtn");
 const mockTweetsBtn = document.getElementById("mockTweetsBtn");
 const reloadBtn = document.getElementById("reloadBtn");
 const clearBtn = document.getElementById("clearBtn");
+const mockPersonSelect = document.getElementById("mockPersonSelect");
+const mockTextInput = document.getElementById("mockTextInput");
+const mockSubmitBtn = document.getElementById("mockSubmitBtn");
 const eventListEl = document.getElementById("eventList");
 const tickerBoardEl = document.getElementById("tickerBoard");
 const tpl = document.getElementById("eventTpl");
@@ -98,6 +101,39 @@ async function mockTweetsNow() {
   }
 }
 
+async function submitCustomMockPost() {
+  const person = (mockPersonSelect.value || "").trim();
+  const text = (mockTextInput.value || "").trim();
+  if (!person) {
+    statusEl.textContent = "请选择人物";
+    return;
+  }
+  if (!text) {
+    statusEl.textContent = "请输入要模拟发布的动态内容";
+    return;
+  }
+
+  mockSubmitBtn.disabled = true;
+  statusEl.textContent = "正在发布模拟动态...";
+  try {
+    const res = await fetch("/api/mock_tweets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ person, text }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      statusEl.textContent = `发布失败: ${data.error || "unknown"}`;
+      return;
+    }
+    statusEl.textContent = `发布成功: person=${person}, inserted=${data.inserted}`;
+    mockTextInput.value = "";
+    await loadEvents();
+  } finally {
+    mockSubmitBtn.disabled = false;
+  }
+}
+
 async function clearEventsNow() {
   const ok = window.confirm("确认清空所有事件数据吗？此操作不可恢复。");
   if (!ok) return;
@@ -121,6 +157,12 @@ refreshBtn.addEventListener("click", refreshNow);
 mockTweetsBtn.addEventListener("click", mockTweetsNow);
 reloadBtn.addEventListener("click", loadEvents);
 clearBtn.addEventListener("click", clearEventsNow);
+mockSubmitBtn.addEventListener("click", submitCustomMockPost);
+mockTextInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    submitCustomMockPost();
+  }
+});
 
 loadEvents().catch((e) => {
   statusEl.textContent = `加载失败: ${e.message}`;

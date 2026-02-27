@@ -78,6 +78,8 @@ PERSON_PATTERNS = {
     "Jerome Powell": [r"powell", r"federal reserve", r"fed chair", r"fomc"],
 }
 
+SUPPORTED_MOCK_PERSONS = list(MOCK_TWEETS.keys())
+
 TICKER_RULES = [
     (r"\btesla\b|\btsla\b|\bmusk\b", ["TSLA"]),
     (r"\bnvidia\b|\bnvda\b|\bjensen\b", ["NVDA", "AMD", "TSM"]),
@@ -501,6 +503,45 @@ class Collector:
                 inserted += 1
         return {"seen": seen, "inserted": inserted}
 
+    def insert_custom_mock_post(self, person: str, text: str) -> dict[str, int]:
+        person = normalize_text(person)
+        text = normalize_text(text)
+        if not person:
+            raise ValueError("person is required")
+        if not text:
+            raise ValueError("text is required")
+
+        now = utc_now_iso()
+        title = f"[Mock Tweet] {person}: {text[:90]}"
+        summary = text
+        url_person = re.sub(r"[^a-z0-9]", "", person.lower()) or "mockuser"
+        url = f"https://x.com/{url_person}/status/mock-{int(time.time())}"
+        merged = f"{title} {summary}"
+
+        persons = extract_persons(merged)
+        if person not in persons:
+            persons.append(person)
+        tickers = map_tickers(merged)
+        ai = self.analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
+
+        event = {
+            "source_name": "X (Mock)",
+            "title": title,
+            "url": url,
+            "published_at": now,
+            "captured_at": now,
+            "summary": ai.get("summary", summary),
+            "persons": sorted(set(persons)),
+            "tickers": tickers,
+            "impact": ai.get("impact", "mixed"),
+            "why": ai.get("why", ""),
+            "horizon": ai.get("horizon", "intraday"),
+            "confidence": int(ai.get("confidence", 50)),
+            "unique_key": f"mock_tweet|custom|{person}|{int(time.time() * 1000)}",
+        }
+        inserted = 1 if self.repo.insert_event(event) else 0
+        return {"seen": 1, "inserted": inserted}
+
     def _fetch_source(self, src: dict[str, str]) -> list[dict[str, str]]:
         if src["type"] == "rss":
             return self._fetch_rss(src["url"])
@@ -600,6 +641,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        data = safe_json_loads(raw.decode("utf-8", errors="ignore"))
+        if isinstance(data, dict):
+            return data
+        return {}
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/health":
@@ -628,8 +681,25 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/mock_tweets":
             try:
-                result = collector.insert_mock_tweets()
+                body = self._read_json_body()
+                person = normalize_text(str(body.get("person", "")))
+                text = normalize_text(str(body.get("text", "")))
+                if person or text:
+                    if person not in SUPPORTED_MOCK_PERSONS:
+                        self._send_json(
+                            {
+                                "ok": False,
+                                "error": f"invalid person, supported: {', '.join(SUPPORTED_MOCK_PERSONS)}",
+                            },
+                            status=400,
+                        )
+                        return
+                    result = collector.insert_custom_mock_post(person=person, text=text)
+                else:
+                    result = collector.insert_mock_tweets()
                 self._send_json({"ok": True, **result, "time": utc_now_iso()})
+            except ValueError as e:
+                self._send_json({"ok": False, "error": str(e)}, status=400)
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=500)
             return
