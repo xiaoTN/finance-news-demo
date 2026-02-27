@@ -8,7 +8,7 @@
 - 关键词/实体识别（Trump, Musk, Jensen Huang, Powell 等）
 - 影响标的映射（TSLA/NVDA/SPY/QQQ/XLE/XLF/DXY 等）
 - AI 分析（OpenAI-compatible Chat Completions）
-- 无 API Key 时，自动使用本地规则分析（可离线演示）
+- 无 API Key 时，输出“无法判断”（`impact=mixed, confidence=0`）
 - 实时看板（最近事件流 + 影响榜单）
 
 ## 启动

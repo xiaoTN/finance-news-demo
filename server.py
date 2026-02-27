@@ -89,32 +89,6 @@ TICKER_RULES = [
     (r"bank|yield|treasury", ["XLF", "TLT"]),
 ]
 
-BULLISH_WORDS = {
-    "beat",
-    "surge",
-    "growth",
-    "strong",
-    "record",
-    "raise guidance",
-    "demand",
-    "cooling inflation",
-    "rate cut",
-    "partnership",
-}
-
-BEARISH_WORDS = {
-    "miss",
-    "drop",
-    "weak",
-    "cut guidance",
-    "lawsuit",
-    "probe",
-    "tariff",
-    "sanction",
-    "supply constraint",
-    "hot inflation",
-}
-
 
 def utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
@@ -168,54 +142,6 @@ def map_tickers(text: str) -> list[str]:
         if re.search(pattern, t):
             tickers.update(items)
     return sorted(tickers)
-
-
-def rule_based_analysis(title: str, summary: str, persons: list[str], tickers: list[str]) -> dict[str, Any]:
-    merged = f"{title} {summary}".lower()
-    bull_score = sum(1 for w in BULLISH_WORDS if w in merged)
-    bear_score = sum(1 for w in BEARISH_WORDS if w in merged)
-
-    if bull_score > bear_score:
-        impact = "bullish"
-    elif bear_score > bull_score:
-        impact = "bearish"
-    else:
-        impact = "mixed"
-
-    if "rate cut" in merged or "cooling inflation" in merged:
-        horizon = "swing"
-    elif any(x in merged for x in ["tariff", "sanction", "probe"]):
-        horizon = "intraday"
-    else:
-        horizon = "intraday"
-
-    base_conf = 55
-    if persons:
-        base_conf += 10
-    if tickers:
-        base_conf += 10
-    if bull_score or bear_score:
-        base_conf += min(20, (bull_score + bear_score) * 5)
-
-    reason_parts = []
-    if persons:
-        reason_parts.append(f"人物信号: {', '.join(persons)}")
-    if tickers:
-        reason_parts.append(f"影响标的: {', '.join(tickers)}")
-    if bull_score:
-        reason_parts.append(f"利好词 {bull_score} 个")
-    if bear_score:
-        reason_parts.append(f"利空词 {bear_score} 个")
-    if not reason_parts:
-        reason_parts.append("新闻信息偏中性，等待更多上下文确认")
-
-    return {
-        "summary": normalize_text(summary)[:280] or normalize_text(title),
-        "impact": impact,
-        "why": "；".join(reason_parts),
-        "horizon": horizon,
-        "confidence": min(95, base_conf),
-    }
 
 
 @dataclass
