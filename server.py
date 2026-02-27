@@ -127,6 +127,43 @@ def safe_json_loads(s: str) -> Any:
         return None
 
 
+def extract_first_json_object(text: str) -> dict[str, Any] | None:
+    if not text:
+        return None
+    direct = safe_json_loads(text)
+    if isinstance(direct, dict):
+        return direct
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    parsed = safe_json_loads(candidate)
+                    if isinstance(parsed, dict):
+                        return parsed
+                    break
+        start = text.find("{", start + 1)
+    return None
+
+
 def normalize_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
@@ -253,7 +290,7 @@ class Analyzer:
         except Exception:
             preview = json.dumps(payload, ensure_ascii=False)[:1200]
             raise RuntimeError(f"Invalid response payload: {preview}")
-        return safe_json_loads(content), content
+        return extract_first_json_object(content), content
 
 
 class Repo:
