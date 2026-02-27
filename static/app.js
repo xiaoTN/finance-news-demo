@@ -7,7 +7,6 @@ const mockPersonSelect = document.getElementById("mockPersonSelect");
 const mockTextInput = document.getElementById("mockTextInput");
 const mockSubmitBtn = document.getElementById("mockSubmitBtn");
 const eventListEl = document.getElementById("eventList");
-const tickerBoardEl = document.getElementById("tickerBoard");
 const tpl = document.getElementById("eventTpl");
 
 function impactText(v) {
@@ -21,19 +20,6 @@ function toLocal(ts) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString();
-}
-
-function renderTickers(items) {
-  const count = new Map();
-  for (const item of items) {
-    for (const t of item.tickers || []) {
-      count.set(t, (count.get(t) || 0) + 1);
-    }
-  }
-  const arr = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
-  tickerBoardEl.innerHTML = arr.length
-    ? arr.map(([t, n]) => `<span class="chip">${t} (${n})</span>`).join("")
-    : `<span class="chip">暂无数据</span>`;
 }
 
 function renderEvents(items) {
@@ -62,7 +48,6 @@ async function loadEvents() {
   const res = await fetch("/api/events?limit=80");
   const data = await res.json();
   const items = data.items || [];
-  renderTickers(items);
   renderEvents(items);
   statusEl.textContent = `最近 ${items.length} 条，更新时间 ${new Date().toLocaleTimeString()}`;
 }
