@@ -94,6 +94,18 @@ def utc_now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def parse_rfc822_to_iso(s: str) -> str | None:
+    """Parse RFC 822 time format to ISO format for proper sorting."""
+    if not s:
+        return None
+    try:
+        # RFC 822 format: "Fri, 27 Feb 2026 16:54:44 GMT"
+        dt_obj = dt.datetime.strptime(s, "%a, %d %b %Y %H:%M:%S %Z")
+        return dt_obj.replace(tzinfo=dt.timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
 def log(msg: str) -> None:
     ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
@@ -364,11 +376,60 @@ class Repo:
             except sqlite3.IntegrityError:
                 return False
 
-    def list_events(self, limit: int = 50) -> list[dict[str, Any]]:
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM events ORDER BY captured_at DESC, id DESC LIMIT ?", (max(1, min(200, limit)),)
-            ).fetchall()
+    def list_events(self, limit: int = 50, sort: str = "captured") -> list[dict[str, Any]]:
+        limit = max(1, min(200, limit))
+        if sort == "published":
+            # Fetch more rows, then sort in Python with proper ISO conversion
+            with self._connect() as conn:
+                rows = conn.execute("SELECT * FROM events LIMIT ?", (limit * 3,)).fetchall()
+            items = []
+            for r in rows:
+                items.append({
+                    "id": r["id"],
+                    "source_name": r["source_name"],
+                    "title": r["title"],
+                    "url": r["url"],
+                    "published_at": r["published_at"],
+                    "captured_at": r["captured_at"],
+                    "summary": r["summary"],
+                    "persons": safe_json_loads(r["persons"]) or [],
+                    "tickers": safe_json_loads(r["tickers"]) or [],
+                    "impact": r["impact"],
+                    "why": r["why"],
+                    "error_detail": r["error_detail"] or "",
+                    "horizon": r["horizon"],
+                    "confidence": r["confidence"],
+                })
+            # Sort by published_at (convert to ISO for proper sorting)
+            def get_published_sort_key(item):
+                iso = parse_rfc822_to_iso(item.get("published_at", "") or "")
+                return iso or ""
+            items.sort(key=get_published_sort_key, reverse=True)
+            return items[:limit]
+        else:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT * FROM events ORDER BY captured_at DESC, id DESC LIMIT ?", (limit,)
+                ).fetchall()
+            items = []
+            for r in rows:
+                items.append({
+                    "id": r["id"],
+                    "source_name": r["source_name"],
+                    "title": r["title"],
+                    "url": r["url"],
+                    "published_at": r["published_at"],
+                    "captured_at": r["captured_at"],
+                    "summary": r["summary"],
+                    "persons": safe_json_loads(r["persons"]) or [],
+                    "tickers": safe_json_loads(r["tickers"]) or [],
+                    "impact": r["impact"],
+                    "why": r["why"],
+                    "error_detail": r["error_detail"] or "",
+                    "horizon": r["horizon"],
+                    "confidence": r["confidence"],
+                })
+            return items
         out = []
         for r in rows:
             out.append(
@@ -676,7 +737,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/events":
             q = urllib.parse.parse_qs(parsed.query)
             limit = int(q.get("limit", ["50"])[0])
-            self._send_json({"items": repo.list_events(limit=limit)})
+            sort = q.get("sort", ["captured"])[0]
+            self._send_json({"items": repo.list_events(limit=limit, sort=sort)})
             return
         self._serve_static(parsed.path)
 

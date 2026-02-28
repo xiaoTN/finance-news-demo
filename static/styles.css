@@ -124,6 +124,27 @@ button:last-child {
   font-size: 18px;
 }
 
+.sort-bar {
+  margin-bottom: 12px;
+}
+
+.sort-bar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sort-bar select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--card);
+  cursor: pointer;
+}
+
 .events {
   display: flex;
   flex-direction: column;

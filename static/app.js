@@ -6,6 +6,7 @@ const clearBtn = document.getElementById("clearBtn");
 const mockPersonSelect = document.getElementById("mockPersonSelect");
 const mockTextInput = document.getElementById("mockTextInput");
 const mockSubmitBtn = document.getElementById("mockSubmitBtn");
+const sortSelect = document.getElementById("sortSelect");
 const eventListEl = document.getElementById("eventList");
 const tpl = document.getElementById("eventTpl");
 
@@ -80,7 +81,8 @@ function renderEvents(items) {
     }
     const persons = (item.persons || []).join(", ") || "无";
     const tickers = (item.tickers || []).join(", ") || "无";
-    node.querySelector(".meta").textContent = `人物: ${persons} | 标的: ${tickers} | 周期: ${item.horizon} | 抓取时间: ${toLocal(item.captured_at)}`;
+    const publishedStr = item.published_at ? `发布: ${toLocal(item.published_at)} | ` : "";
+    node.querySelector(".meta").textContent = `人物: ${persons} | 标的: ${tickers} | 周期: ${item.horizon} | ${publishedStr}抓取: ${toLocal(item.captured_at)}`;
     const a = node.querySelector(".link");
     a.href = item.url;
     eventListEl.appendChild(node);
@@ -89,7 +91,8 @@ function renderEvents(items) {
 
 async function loadEvents() {
   statusEl.textContent = "正在加载事件...";
-  const res = await fetch("/api/events?limit=80");
+  const sort = sortSelect ? sortSelect.value : "captured";
+  const res = await fetch(`/api/events?limit=80&sort=${sort}`);
   const data = await res.json();
   const items = data.items || [];
   renderEvents(items);
@@ -187,6 +190,7 @@ mockTweetsBtn.addEventListener("click", mockTweetsNow);
 reloadBtn.addEventListener("click", loadEvents);
 clearBtn.addEventListener("click", clearEventsNow);
 mockSubmitBtn.addEventListener("click", submitCustomMockPost);
+sortSelect.addEventListener("change", loadEvents);
 mockTextInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     submitCustomMockPost();

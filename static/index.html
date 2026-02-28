@@ -43,6 +43,15 @@
     <main class="layout">
       <section class="panel">
         <h2>最新事件流</h2>
+        <div class="sort-bar">
+          <label>
+            排序：
+            <select id="sortSelect">
+              <option value="published">按发布时间</option>
+              <option value="captured">按抓取时间</option>
+            </select>
+          </label>
+        </div>
         <div id="eventList" class="events"></div>
       </section>
     </main>
