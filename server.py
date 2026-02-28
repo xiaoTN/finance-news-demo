@@ -62,6 +62,24 @@ SOURCES = [
         "url": "",
         "focus": "财经数据快讯 (模拟)",
     },
+    {
+        "name": "MarketWatch",
+        "type": "rss",
+        "url": "https://feeds.marketwatch.com/marketwatch/topstories",
+        "focus": "US Markets",
+    },
+    {
+        "name": "Benzinga",
+        "type": "rss",
+        "url": "https://www.benzinga.com/feed",
+        "focus": "Stock Market News",
+    },
+    {
+        "name": "Seeking Alpha",
+        "type": "rss",
+        "url": "https://seekingalpha.com/market_currents.xml",
+        "focus": "Investment Analysis",
+    },
 ]
 
 MOCK_TWEETS = {
