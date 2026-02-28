@@ -1,6 +1,5 @@
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refreshBtn");
-const mockTweetsBtn = document.getElementById("mockTweetsBtn");
 const reloadBtn = document.getElementById("reloadBtn");
 const clearBtn = document.getElementById("clearBtn");
 const mockPersonSelect = document.getElementById("mockPersonSelect");
@@ -115,23 +114,6 @@ async function refreshNow() {
   }
 }
 
-async function mockTweetsNow() {
-  mockTweetsBtn.disabled = true;
-  statusEl.textContent = "正在注入模拟推特事件...";
-  try {
-    const res = await fetch("/api/mock_tweets", { method: "POST" });
-    const data = await res.json();
-    if (!data.ok) {
-      statusEl.textContent = `推特测试失败: ${data.error || "unknown"}`;
-      return;
-    }
-    statusEl.textContent = `推特测试完成: seen=${data.seen}, inserted=${data.inserted}`;
-    await loadEvents();
-  } finally {
-    mockTweetsBtn.disabled = false;
-  }
-}
-
 async function submitCustomMockPost() {
   const person = (mockPersonSelect.value || "").trim();
   const text = (mockTextInput.value || "").trim();
@@ -185,7 +167,6 @@ async function clearEventsNow() {
 }
 
 refreshBtn.addEventListener("click", refreshNow);
-mockTweetsBtn.addEventListener("click", mockTweetsNow);
 reloadBtn.addEventListener("click", loadEvents);
 clearBtn.addEventListener("click", clearEventsNow);
 mockSubmitBtn.addEventListener("click", submitCustomMockPost);
