@@ -54,7 +54,6 @@ function renderEvents(items) {
     } else {
       impactEl.style.display = "none";
     }
-    node.querySelector(".confidence").textContent = `置信度 ${item.confidence}`;
     node.querySelector(".title").textContent = item.title;
     node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
     node.querySelector(".why").textContent = `原因：${item.why || "-"}`;

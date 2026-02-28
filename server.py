@@ -50,6 +50,18 @@ SOURCES = [
         "url": "https://www.federalreserve.gov/feeds/press_monetary.xml",
         "focus": "Powell / rates / inflation",
     },
+    {
+        "name": "雪球",
+        "type": "xueqiu",
+        "url": "",
+        "focus": "A股/中概股 (模拟)",
+    },
+    {
+        "name": "金十数据",
+        "type": "goldengate",
+        "url": "",
+        "focus": "财经数据快讯 (模拟)",
+    },
 ]
 
 MOCK_TWEETS = {
@@ -126,7 +138,7 @@ def load_env_file(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-def http_get(url: str, timeout: int = 15) -> bytes:
+def http_get(url: str, timeout: int = 10) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
@@ -589,11 +601,45 @@ class Collector:
         return {"seen": 1, "inserted": inserted}
 
     def _fetch_source(self, src: dict[str, str]) -> list[dict[str, str]]:
-        if src["type"] == "rss":
-            return self._fetch_rss(src["url"])
-        if src["type"] == "json":
-            return self._fetch_nvidia_json(src["url"])
+        try:
+            if src["type"] == "rss":
+                return self._fetch_rss(src["url"])
+            if src["type"] == "json":
+                return self._fetch_nvidia_json(src["url"])
+            if src["type"] == "xueqiu":
+                return self._fetch_xueqiu_mock()
+            if src["type"] == "goldengate":
+                return self._fetch_goldengate_mock()
+        except Exception as e:
+            log(f"Failed to fetch {src['name']}: {e}")
         return []
+
+    def _fetch_xueqiu_mock(self) -> list[dict[str, str]]:
+        """模拟雪球网数据 (雪球无公开RSS，使用模拟数据)"""
+        mock_items = [
+            {"title": "A股三大指数集体收涨，创业板指涨超2%", "url": "https://xueqiu.com/S/CSI300", "summary": "今日A股市场表现强劲，新能源、半导体板块领涨。", "published_at": ""},
+            {"title": "宁德时代发布新一代电池技术，续航突破1000公里", "url": "https://xueqiu.com/S/SZ300750", "summary": "宁德时代宣布最新电池技术突破，股价盘后大涨。", "published_at": ""},
+            {"title": "阿里巴巴Q3财报超预期，云业务增速放缓", "url": "https://xueqiu.com/S/BABA", "summary": "阿里三季度营收同比增长8%，但云业务增速低于市场预期。", "published_at": ""},
+            {"title": "比亚迪宣布降价促销，新能源车价格战再起", "url": "https://xueqiu.com/S/SZ002594", "summary": "比亚迪多款车型降价最高3万元，市场竞争加剧。", "published_at": ""},
+        ]
+        return self._add_mock_published_at(mock_items)
+
+    def _fetch_goldengate_mock(self) -> list[dict[str, str]]:
+        """模拟金十数据快讯 (金十无公开RSS，使用模拟数据)"""
+        mock_items = [
+            {"title": "中国央行：保持流动性合理充裕", "url": "https://goldengate.com.cn/news/fast/1", "summary": "央行发布公告称将继续实施稳健的货币政策。", "published_at": ""},
+            {"title": "离岸人民币兑美元短线拉升200点", "url": "https://goldengate.com.cn/news/fast/2", "summary": "受美元走弱影响，人民币汇率今日明显升值。", "published_at": ""},
+            {"title": "美国CPI数据低于预期，美联储降息预期升温", "url": "https://goldengate.com.cn/news/fast/3", "summary": "美国1月CPI同比增长2.9%，市场预期美联储3月降息概率上升。", "published_at": ""},
+            {"title": "欧洲央行维持利率不变，符合市场预期", "url": "https://goldengate.com.cn/news/fast/4", "summary": "欧央行决议维持三大关键利率不变，鸽派声明提振股市。", "published_at": ""},
+        ]
+        return self._add_mock_published_at(mock_items)
+
+    def _add_mock_published_at(self, items: list[dict[str, str]]) -> list[dict[str, str]]:
+        """为模拟数据添加当前时间作为发布时间"""
+        now = dt.datetime.now(dt.timezone.utc)
+        for item in items:
+            item["published_at"] = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        return items
 
     def _fetch_rss(self, url: str) -> list[dict[str, str]]:
         raw = http_get(url)

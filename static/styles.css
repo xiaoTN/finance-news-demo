@@ -188,12 +188,6 @@ button:last-child {
   color: var(--mix);
 }
 
-.confidence {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .title {
   margin: 0;
   font-size: 16px;
