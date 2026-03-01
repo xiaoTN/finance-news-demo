@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>金融新闻 AI 分析 Demo</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=3" />
   </head>
   <body>
     <header class="topbar">
@@ -50,6 +50,10 @@
               <option value="captured">按抓取时间</option>
             </select>
           </label>
+          <label>
+            <input type="checkbox" id="mockCheckbox" checked />
+            显示模拟数据
+          </label>
         </div>
         <div id="eventList" class="events"></div>
       </section>
@@ -70,6 +74,6 @@
       </article>
     </template>
 
-    <script src="/app.js"></script>
+    <script src="/app.js?v=3"></script>
   </body>
 </html>

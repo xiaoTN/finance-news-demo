@@ -51,18 +51,6 @@ SOURCES = [
         "focus": "Powell / rates / inflation",
     },
     {
-        "name": "雪球",
-        "type": "xueqiu",
-        "url": "",
-        "focus": "A股/中概股 (模拟)",
-    },
-    {
-        "name": "金十数据",
-        "type": "goldengate",
-        "url": "",
-        "focus": "财经数据快讯 (模拟)",
-    },
-    {
         "name": "MarketWatch",
         "type": "rss",
         "url": "https://feeds.marketwatch.com/marketwatch/topstories",
@@ -319,7 +307,7 @@ class Analyzer:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
@@ -406,7 +394,7 @@ class Repo:
             except sqlite3.IntegrityError:
                 return False
 
-    def list_events(self, limit: int = 50, sort: str = "captured") -> list[dict[str, Any]]:
+    def list_events(self, limit: int = 50, sort: str = "captured", include_mock: bool = True) -> list[dict[str, Any]]:
         limit = max(1, min(200, limit))
         if sort == "published":
             # Fetch more rows, then sort in Python with proper ISO conversion
@@ -435,15 +423,15 @@ class Repo:
                 iso = parse_rfc822_to_iso(item.get("published_at", "") or "")
                 return iso or ""
             items.sort(key=get_published_sort_key, reverse=True)
-            return items[:limit]
+            result = items[:limit]
         else:
             with self._connect() as conn:
                 rows = conn.execute(
                     "SELECT * FROM events ORDER BY captured_at DESC, id DESC LIMIT ?", (limit,)
                 ).fetchall()
-            items = []
+            result = []
             for r in rows:
-                items.append({
+                result.append({
                     "id": r["id"],
                     "source_name": r["source_name"],
                     "title": r["title"],
@@ -459,28 +447,10 @@ class Repo:
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
                 })
-            return items
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "id": r["id"],
-                    "source_name": r["source_name"],
-                    "title": r["title"],
-                    "url": r["url"],
-                    "published_at": r["published_at"],
-                    "captured_at": r["captured_at"],
-                    "summary": r["summary"],
-                    "persons": safe_json_loads(r["persons"]) or [],
-                    "tickers": safe_json_loads(r["tickers"]) or [],
-                    "impact": r["impact"],
-                    "why": r["why"],
-                    "error_detail": r["error_detail"] or "",
-                    "horizon": r["horizon"],
-                    "confidence": r["confidence"],
-                }
-            )
-        return out
+        # Filter out mock data if include_mock is False
+        if not include_mock:
+            result = [item for item in result if not item["source_name"].startswith("X (Mock")]
+        return result
 
     def clear_events(self) -> int:
         with self._lock, self._connect() as conn:
@@ -624,40 +594,9 @@ class Collector:
                 return self._fetch_rss(src["url"])
             if src["type"] == "json":
                 return self._fetch_nvidia_json(src["url"])
-            if src["type"] == "xueqiu":
-                return self._fetch_xueqiu_mock()
-            if src["type"] == "goldengate":
-                return self._fetch_goldengate_mock()
         except Exception as e:
             log(f"Failed to fetch {src['name']}: {e}")
         return []
-
-    def _fetch_xueqiu_mock(self) -> list[dict[str, str]]:
-        """模拟雪球网数据 (雪球无公开RSS，使用模拟数据)"""
-        mock_items = [
-            {"title": "A股三大指数集体收涨，创业板指涨超2%", "url": "https://xueqiu.com/S/CSI300", "summary": "今日A股市场表现强劲，新能源、半导体板块领涨。", "published_at": ""},
-            {"title": "宁德时代发布新一代电池技术，续航突破1000公里", "url": "https://xueqiu.com/S/SZ300750", "summary": "宁德时代宣布最新电池技术突破，股价盘后大涨。", "published_at": ""},
-            {"title": "阿里巴巴Q3财报超预期，云业务增速放缓", "url": "https://xueqiu.com/S/BABA", "summary": "阿里三季度营收同比增长8%，但云业务增速低于市场预期。", "published_at": ""},
-            {"title": "比亚迪宣布降价促销，新能源车价格战再起", "url": "https://xueqiu.com/S/SZ002594", "summary": "比亚迪多款车型降价最高3万元，市场竞争加剧。", "published_at": ""},
-        ]
-        return self._add_mock_published_at(mock_items)
-
-    def _fetch_goldengate_mock(self) -> list[dict[str, str]]:
-        """模拟金十数据快讯 (金十无公开RSS，使用模拟数据)"""
-        mock_items = [
-            {"title": "中国央行：保持流动性合理充裕", "url": "https://goldengate.com.cn/news/fast/1", "summary": "央行发布公告称将继续实施稳健的货币政策。", "published_at": ""},
-            {"title": "离岸人民币兑美元短线拉升200点", "url": "https://goldengate.com.cn/news/fast/2", "summary": "受美元走弱影响，人民币汇率今日明显升值。", "published_at": ""},
-            {"title": "美国CPI数据低于预期，美联储降息预期升温", "url": "https://goldengate.com.cn/news/fast/3", "summary": "美国1月CPI同比增长2.9%，市场预期美联储3月降息概率上升。", "published_at": ""},
-            {"title": "欧洲央行维持利率不变，符合市场预期", "url": "https://goldengate.com.cn/news/fast/4", "summary": "欧央行决议维持三大关键利率不变，鸽派声明提振股市。", "published_at": ""},
-        ]
-        return self._add_mock_published_at(mock_items)
-
-    def _add_mock_published_at(self, items: list[dict[str, str]]) -> list[dict[str, str]]:
-        """为模拟数据添加当前时间作为发布时间"""
-        now = dt.datetime.now(dt.timezone.utc)
-        for item in items:
-            item["published_at"] = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
-        return items
 
     def _fetch_rss(self, url: str) -> list[dict[str, str]]:
         raw = http_get(url)
@@ -802,7 +741,8 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query)
             limit = int(q.get("limit", ["50"])[0])
             sort = q.get("sort", ["captured"])[0]
-            self._send_json({"items": repo.list_events(limit=limit, sort=sort)})
+            include_mock = q.get("mock", ["true"])[0].lower() != "false"
+            self._send_json({"items": repo.list_events(limit=limit, sort=sort, include_mock=include_mock)})
             return
         self._serve_static(parsed.path)
 

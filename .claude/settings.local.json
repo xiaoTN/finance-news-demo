@@ -4,7 +4,17 @@
       "Bash(gh auth status:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: finance-news-demo\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: finance-news-demo\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "WebSearch",
+      "WebFetch(domain:stock.xueqiu.com)",
+      "WebFetch(domain:flash-api.jin10.com)",
+      "WebFetch(domain:rili.jin10.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh repo view:*)"
     ]
   }
 }

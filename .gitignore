@@ -7,3 +7,5 @@ env/
 .env
 *.egg-info/
 .DS_Store
+/.playwright-mcp/
+/.idea/

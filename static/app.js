@@ -6,6 +6,7 @@ const mockPersonSelect = document.getElementById("mockPersonSelect");
 const mockTextInput = document.getElementById("mockTextInput");
 const mockSubmitBtn = document.getElementById("mockSubmitBtn");
 const sortSelect = document.getElementById("sortSelect");
+const mockCheckbox = document.getElementById("mockCheckbox");
 const eventListEl = document.getElementById("eventList");
 const tpl = document.getElementById("eventTpl");
 
@@ -43,7 +44,13 @@ function renderEvents(items) {
   eventListEl.innerHTML = "";
   for (const item of items) {
     const node = tpl.content.firstElementChild.cloneNode(true);
-    node.querySelector(".source").textContent = item.source_name;
+    const sourceEl = node.querySelector(".source");
+    sourceEl.textContent = item.source_name;
+    // 为 mock 数据添加明显标识
+    if (item.source_name.startsWith("X (Mock")) {
+      node.classList.add("mock-event");
+      sourceEl.classList.add("mock-badge");
+    }
     const impactEl = node.querySelector(".impact");
     const impact = impactText(item.impact);
     impactEl.textContent = impact;
@@ -90,7 +97,8 @@ function renderEvents(items) {
 async function loadEvents() {
   statusEl.textContent = "正在加载事件...";
   const sort = sortSelect ? sortSelect.value : "captured";
-  const res = await fetch(`/api/events?limit=80&sort=${sort}`);
+  const includeMock = mockCheckbox ? mockCheckbox.checked : true;
+  const res = await fetch(`/api/events?limit=80&sort=${sort}&mock=${includeMock}`);
   const data = await res.json();
   const items = data.items || [];
   renderEvents(items);
@@ -108,10 +116,13 @@ async function refreshNow() {
       return;
     }
     statusEl.textContent = `抓取完成: seen=${data.seen}, inserted=${data.inserted}`;
-    await loadEvents();
+  } catch (e) {
+    statusEl.textContent = `抓取失败: ${e.message}`;
+    return;
   } finally {
     refreshBtn.disabled = false;
   }
+  await loadEvents();
 }
 
 async function submitCustomMockPost() {
@@ -171,6 +182,7 @@ reloadBtn.addEventListener("click", loadEvents);
 clearBtn.addEventListener("click", clearEventsNow);
 mockSubmitBtn.addEventListener("click", submitCustomMockPost);
 sortSelect.addEventListener("change", loadEvents);
+mockCheckbox.addEventListener("change", loadEvents);
 mockTextInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     submitCustomMockPost();

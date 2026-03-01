@@ -152,9 +152,38 @@ button:last-child {
 }
 
 .event {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px;
+  overflow: visible;
+}
+
+/* Mock 数据明显标识 */
+.event.mock-event {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  border-width: 2px;
+}
+
+.event.mock-event .source.mock-badge {
+  background: #f59e0b;
+  color: #fff;
+  font-weight: 700;
+}
+
+.event.mock-event::before {
+  content: "MOCK";
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #ef4444;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 0 11px 0 8px;
+  z-index: 1;
 }
 
 .event-head {
