@@ -19,26 +19,6 @@
       </div>
     </header>
 
-    <section class="mock-form-wrap">
-      <h2>自定义人物动态模拟</h2>
-      <div class="mock-form">
-        <label>
-          人物
-          <select id="mockPersonSelect">
-            <option value="Donald Trump">Donald Trump</option>
-            <option value="Elon Musk">Elon Musk</option>
-            <option value="Jensen Huang">Jensen Huang</option>
-            <option value="Jerome Powell">Jerome Powell</option>
-          </select>
-        </label>
-        <label class="mock-text">
-          动态内容
-          <input id="mockTextInput" type="text" placeholder="例如：考虑提高汽车进口关税以保护美国制造业" maxlength="300" />
-        </label>
-        <button id="mockSubmitBtn">发布模拟动态</button>
-      </div>
-    </section>
-
     <main class="layout">
       <section class="panel">
         <h2>最新事件流</h2>
@@ -49,10 +29,6 @@
               <option value="published">按发布时间</option>
               <option value="captured">按抓取时间</option>
             </select>
-          </label>
-          <label>
-            <input type="checkbox" id="mockCheckbox" checked />
-            显示模拟数据
           </label>
         </div>
         <div id="eventList" class="events"></div>

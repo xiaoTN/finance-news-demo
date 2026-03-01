@@ -2,11 +2,7 @@ const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refreshBtn");
 const reloadBtn = document.getElementById("reloadBtn");
 const clearBtn = document.getElementById("clearBtn");
-const mockPersonSelect = document.getElementById("mockPersonSelect");
-const mockTextInput = document.getElementById("mockTextInput");
-const mockSubmitBtn = document.getElementById("mockSubmitBtn");
 const sortSelect = document.getElementById("sortSelect");
-const mockCheckbox = document.getElementById("mockCheckbox");
 const eventListEl = document.getElementById("eventList");
 const tpl = document.getElementById("eventTpl");
 
@@ -46,11 +42,6 @@ function renderEvents(items) {
     const node = tpl.content.firstElementChild.cloneNode(true);
     const sourceEl = node.querySelector(".source");
     sourceEl.textContent = item.source_name;
-    // 为 mock 数据添加明显标识
-    if (item.source_name.startsWith("X (Mock")) {
-      node.classList.add("mock-event");
-      sourceEl.classList.add("mock-badge");
-    }
     const impactEl = node.querySelector(".impact");
     const impact = impactText(item.impact);
     impactEl.textContent = impact;
@@ -97,8 +88,7 @@ function renderEvents(items) {
 async function loadEvents() {
   statusEl.textContent = "正在加载事件...";
   const sort = sortSelect ? sortSelect.value : "captured";
-  const includeMock = mockCheckbox ? mockCheckbox.checked : true;
-  const res = await fetch(`/api/events?limit=80&sort=${sort}&mock=${includeMock}`);
+  const res = await fetch(`/api/events?limit=80&sort=${sort}`);
   const data = await res.json();
   const items = data.items || [];
   renderEvents(items);
@@ -125,39 +115,6 @@ async function refreshNow() {
   await loadEvents();
 }
 
-async function submitCustomMockPost() {
-  const person = (mockPersonSelect.value || "").trim();
-  const text = (mockTextInput.value || "").trim();
-  if (!person) {
-    statusEl.textContent = "请选择人物";
-    return;
-  }
-  if (!text) {
-    statusEl.textContent = "请输入要模拟发布的动态内容";
-    return;
-  }
-
-  mockSubmitBtn.disabled = true;
-  statusEl.textContent = "正在发布模拟动态...";
-  try {
-    const res = await fetch("/api/mock_tweets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ person, text }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      statusEl.textContent = `发布失败: ${data.error || "unknown"}`;
-      return;
-    }
-    statusEl.textContent = `发布成功: person=${person}, inserted=${data.inserted}`;
-    mockTextInput.value = "";
-    await loadEvents();
-  } finally {
-    mockSubmitBtn.disabled = false;
-  }
-}
-
 async function clearEventsNow() {
   const ok = window.confirm("确认清空所有事件数据吗？此操作不可恢复。");
   if (!ok) return;
@@ -180,14 +137,7 @@ async function clearEventsNow() {
 refreshBtn.addEventListener("click", refreshNow);
 reloadBtn.addEventListener("click", loadEvents);
 clearBtn.addEventListener("click", clearEventsNow);
-mockSubmitBtn.addEventListener("click", submitCustomMockPost);
 sortSelect.addEventListener("change", loadEvents);
-mockCheckbox.addEventListener("change", loadEvents);
-mockTextInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    submitCustomMockPost();
-  }
-});
 
 loadEvents().catch((e) => {
   statusEl.textContent = `加载失败: ${e.message}`;
