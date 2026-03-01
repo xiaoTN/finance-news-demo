@@ -70,33 +70,6 @@ SOURCES = [
     },
 ]
 
-MOCK_TWEETS = {
-    "Donald Trump": [
-        "Tariffs on strategic imports may rise again to protect US manufacturing.",
-        "Big tax cuts and deregulation agenda will support domestic growth and jobs.",
-    ],
-    "Elon Musk": [
-        "Tesla FSD progress is accelerating, demand trends remain strong into next quarter.",
-        "xAI and Tesla engineering collaboration can improve autonomy and cost efficiency.",
-    ],
-    "Jensen Huang": [
-        "AI infrastructure demand remains very strong and supply is improving this year.",
-        "NVIDIA software and networking momentum continues across enterprise and cloud partners.",
-    ],
-    "Jerome Powell": [
-        "Disinflation has progressed, but policy decisions remain data dependent.",
-        "Labor market is cooling gradually; we will act if inflation re-accelerates.",
-    ],
-}
-
-PERSON_PATTERNS = {
-    "Donald Trump": [r"\btrump\b", r"realdonaldtrump", r"truth social"],
-    "Elon Musk": [r"\belon\b", r"\bmusk\b", r"tesla"],
-    "Jensen Huang": [r"jensen huang", r"nvidia ceo", r"nvda"],
-    "Jerome Powell": [r"powell", r"federal reserve", r"fed chair", r"fomc"],
-}
-
-SUPPORTED_MOCK_PERSONS = list(MOCK_TWEETS.keys())
 
 TICKER_RULES = [
     (r"\btesla\b|\btsla\b|\bmusk\b", ["TSLA"]),
@@ -196,15 +169,6 @@ def extract_first_json_object(text: str) -> dict[str, Any] | None:
 
 def normalize_text(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
-
-
-def extract_persons(text: str) -> list[str]:
-    t = text.lower()
-    found: list[str] = []
-    for person, patterns in PERSON_PATTERNS.items():
-        if any(re.search(p, t) for p in patterns):
-            found.append(person)
-    return found
 
 
 def map_tickers(text: str) -> list[str]:
@@ -394,7 +358,7 @@ class Repo:
             except sqlite3.IntegrityError:
                 return False
 
-    def list_events(self, limit: int = 50, sort: str = "captured", include_mock: bool = True) -> list[dict[str, Any]]:
+    def list_events(self, limit: int = 50, sort: str = "captured") -> list[dict[str, Any]]:
         limit = max(1, min(200, limit))
         if sort == "published":
             # Fetch more rows, then sort in Python with proper ISO conversion
@@ -447,9 +411,6 @@ class Repo:
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
                 })
-        # Filter out mock data if include_mock is False
-        if not include_mock:
-            result = [item for item in result if not item["source_name"].startswith("X (Mock")]
         return result
 
     def clear_events(self) -> int:
@@ -484,7 +445,7 @@ class Collector:
                 if not title or not url:
                     continue
                 merged = f"{title} {summary}"
-                persons = extract_persons(merged)
+                persons = []
                 tickers = map_tickers(merged)
                 ai = self.analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
                 event = {
@@ -507,93 +468,16 @@ class Collector:
                     inserted += 1
         return {"seen": seen, "inserted": inserted}
 
-    def insert_mock_tweets(self) -> dict[str, int]:
-        inserted = 0
-        seen = 0
-        now = utc_now_iso()
-        for person, tweets in MOCK_TWEETS.items():
-            if not tweets:
-                continue
-            seen += 1
-            # Rotate deterministic samples so each click shows a different statement.
-            pick = int(dt.datetime.now(dt.timezone.utc).timestamp()) % len(tweets)
-            text = tweets[pick]
-            title = f"[Mock Tweet] {person}: {text[:90]}"
-            summary = text
-            url_person = person.lower().replace(" ", "")
-            url = f"https://x.com/{url_person}/status/mock-{int(time.time())}-{seen}"
-            merged = f"{title} {summary}"
-            persons = extract_persons(merged)
-            if person not in persons:
-                persons.append(person)
-            tickers = map_tickers(merged)
-            ai = self.analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
-            event = {
-                "source_name": "X (Mock)",
-                "title": title,
-                "url": url,
-                "published_at": now,
-                "captured_at": now,
-                "summary": ai.get("summary", summary),
-                "persons": sorted(set(persons)),
-                "tickers": tickers,
-                "impact": ai.get("impact", "mixed"),
-                "why": ai.get("why", ""),
-                "error_detail": ai.get("error_detail", ""),
-                "horizon": ai.get("horizon", "intraday"),
-                "confidence": int(ai.get("confidence", 50)),
-                "unique_key": f"mock_tweet|{person}|{int(time.time())}|{seen}",
-            }
-            if self.repo.insert_event(event):
-                inserted += 1
-        return {"seen": seen, "inserted": inserted}
-
-    def insert_custom_mock_post(self, person: str, text: str) -> dict[str, int]:
-        person = normalize_text(person)
-        text = normalize_text(text)
-        if not person:
-            raise ValueError("person is required")
-        if not text:
-            raise ValueError("text is required")
-
-        now = utc_now_iso()
-        title = f"[Mock Tweet] {person}: {text[:90]}"
-        summary = text
-        url_person = re.sub(r"[^a-z0-9]", "", person.lower()) or "mockuser"
-        url = f"https://x.com/{url_person}/status/mock-{int(time.time())}"
-        merged = f"{title} {summary}"
-
-        persons = extract_persons(merged)
-        if person not in persons:
-            persons.append(person)
-        tickers = map_tickers(merged)
-        ai = self.analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
-
-        event = {
-            "source_name": "X (Mock)",
-            "title": title,
-            "url": url,
-            "published_at": now,
-            "captured_at": now,
-            "summary": ai.get("summary", summary),
-            "persons": sorted(set(persons)),
-            "tickers": tickers,
-            "impact": ai.get("impact", "mixed"),
-            "why": ai.get("why", ""),
-            "error_detail": ai.get("error_detail", ""),
-            "horizon": ai.get("horizon", "intraday"),
-            "confidence": int(ai.get("confidence", 50)),
-            "unique_key": f"mock_tweet|custom|{person}|{int(time.time() * 1000)}",
-        }
-        inserted = 1 if self.repo.insert_event(event) else 0
-        return {"seen": 1, "inserted": inserted}
-
     def _fetch_source(self, src: dict[str, str]) -> list[dict[str, str]]:
         try:
             if src["type"] == "rss":
-                return self._fetch_rss(src["url"])
+                items = self._fetch_rss(src["url"])
+                log(f"Fetched {src['name']}: {len(items)} items")
+                return items
             if src["type"] == "json":
-                return self._fetch_nvidia_json(src["url"])
+                items = self._fetch_nvidia_json(src["url"])
+                log(f"Fetched {src['name']}: {len(items)} items")
+                return items
         except Exception as e:
             log(f"Failed to fetch {src['name']}: {e}")
         return []
@@ -741,8 +625,7 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query)
             limit = int(q.get("limit", ["50"])[0])
             sort = q.get("sort", ["captured"])[0]
-            include_mock = q.get("mock", ["true"])[0].lower() != "false"
-            self._send_json({"items": repo.list_events(limit=limit, sort=sort, include_mock=include_mock)})
+            self._send_json({"items": repo.list_events(limit=limit, sort=sort)})
             return
         self._serve_static(parsed.path)
 
@@ -754,30 +637,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, **result, "time": utc_now_iso()})
             except urllib.error.URLError as e:
                 self._send_json({"ok": False, "error": f"network error: {e}"}, status=502)
-            except Exception as e:
-                self._send_json({"ok": False, "error": str(e)}, status=500)
-            return
-        if parsed.path == "/api/mock_tweets":
-            try:
-                body = self._read_json_body()
-                person = normalize_text(str(body.get("person", "")))
-                text = normalize_text(str(body.get("text", "")))
-                if person or text:
-                    if person not in SUPPORTED_MOCK_PERSONS:
-                        self._send_json(
-                            {
-                                "ok": False,
-                                "error": f"invalid person, supported: {', '.join(SUPPORTED_MOCK_PERSONS)}",
-                            },
-                            status=400,
-                        )
-                        return
-                    result = collector.insert_custom_mock_post(person=person, text=text)
-                else:
-                    result = collector.insert_mock_tweets()
-                self._send_json({"ok": True, **result, "time": utc_now_iso()})
-            except ValueError as e:
-                self._send_json({"ok": False, "error": str(e)}, status=400)
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=500)
             return
