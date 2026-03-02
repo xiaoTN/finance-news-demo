@@ -95,9 +95,35 @@ async function loadEvents() {
   statusEl.textContent = `最近 ${items.length} 条，更新时间 ${new Date().toLocaleTimeString()}`;
 }
 
+let _progressTimer = null;
+
+function startProgressPolling() {
+  if (_progressTimer) return;
+  _progressTimer = setInterval(async () => {
+    try {
+      const res = await fetch("/api/progress");
+      const p = await res.json();
+      if (p.running) {
+        const total = p.total || 1;
+        const idx = p.current_idx || 0;
+        const src = p.current_source ? `${p.current_source}` : "";
+        statusEl.textContent = `正在抓取 [${idx}/${total}] ${src}… 已获取 ${p.fetched} 条，新增 ${p.inserted} 条`;
+      }
+    } catch (_) {}
+  }, 800);
+}
+
+function stopProgressPolling() {
+  if (_progressTimer) {
+    clearInterval(_progressTimer);
+    _progressTimer = null;
+  }
+}
+
 async function refreshNow() {
   refreshBtn.disabled = true;
   statusEl.textContent = "正在抓取并分析...";
+  startProgressPolling();
   try {
     const res = await fetch("/api/refresh", { method: "POST" });
     const data = await res.json();
@@ -105,11 +131,12 @@ async function refreshNow() {
       statusEl.textContent = `抓取失败: ${data.error || "unknown"}`;
       return;
     }
-    statusEl.textContent = `抓取完成: seen=${data.seen}, inserted=${data.inserted}`;
+    statusEl.textContent = `抓取完成：共扫描 ${data.seen} 条，新增 ${data.inserted} 条`;
   } catch (e) {
     statusEl.textContent = `抓取失败: ${e.message}`;
     return;
   } finally {
+    stopProgressPolling();
     refreshBtn.disabled = false;
   }
   await loadEvents();

@@ -429,16 +429,21 @@ class Collector:
         self.repo = repo
         self.analyzer = analyzer
 
-    def fetch_all(self) -> dict[str, int]:
+    def fetch_all(self, progress: dict[str, Any] | None = None) -> dict[str, int]:
         inserted = 0
         seen = 0
-        for src in SOURCES:
+        for idx, src in enumerate(SOURCES):
+            if progress is not None:
+                progress["current_idx"] = idx + 1
+                progress["current_source"] = src["name"]
             try:
                 items = self._fetch_source(src)
             except Exception:
                 items = []
             for item in items:
                 seen += 1
+                if progress is not None:
+                    progress["fetched"] = seen
                 title = normalize_text(item.get("title", ""))
                 summary = normalize_text(item.get("summary", ""))
                 url = item.get("url", "")
@@ -466,6 +471,8 @@ class Collector:
                 }
                 if self.repo.insert_event(event):
                     inserted += 1
+                    if progress is not None:
+                        progress["inserted"] = inserted
         return {"seen": seen, "inserted": inserted}
 
     def _fetch_source(self, src: dict[str, str]) -> list[dict[str, str]]:
@@ -528,13 +535,51 @@ repo = Repo(DB_PATH)
 analyzer = Analyzer()
 collector = Collector(repo, analyzer)
 
+# 全局抓取进度状态
+_fetch_progress: dict[str, Any] = {
+    "running": False,
+    "total": len(SOURCES),
+    "current_idx": 0,
+    "current_source": "",
+    "fetched": 0,
+    "inserted": 0,
+    "done": False,
+    "started_at": "",
+    "finished_at": "",
+}
+
+
+def _run_fetch_with_progress(label: str) -> dict[str, int]:
+    global _fetch_progress
+    _fetch_progress.update({
+        "running": True,
+        "total": len(SOURCES),
+        "current_idx": 0,
+        "current_source": "",
+        "fetched": 0,
+        "inserted": 0,
+        "done": False,
+        "started_at": utc_now_iso(),
+        "finished_at": "",
+    })
+    try:
+        result = collector.fetch_all(progress=_fetch_progress)
+        _fetch_progress["fetched"] = result["seen"]
+        _fetch_progress["inserted"] = result["inserted"]
+        return result
+    finally:
+        _fetch_progress["running"] = False
+        _fetch_progress["done"] = True
+        _fetch_progress["finished_at"] = utc_now_iso()
+        _fetch_progress["current_source"] = ""
+
 
 def auto_refresh_loop() -> None:
     log(f"Auto refresh loop started: interval={REFRESH_SECONDS}s")
     while True:
         try:
             started = time.time()
-            result = collector.fetch_all()
+            result = _run_fetch_with_progress("auto")
             elapsed = round(time.time() - started, 2)
             log(f"Auto refresh done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
         except Exception as e:
@@ -547,7 +592,7 @@ def boot_fetch_once() -> None:
     try:
         log("Boot fetch started")
         started = time.time()
-        result = collector.fetch_all()
+        result = _run_fetch_with_progress("boot")
         elapsed = round(time.time() - started, 2)
         log(f"Boot fetch done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
     except Exception as e:
@@ -627,13 +672,16 @@ class Handler(BaseHTTPRequestHandler):
             sort = q.get("sort", ["captured"])[0]
             self._send_json({"items": repo.list_events(limit=limit, sort=sort)})
             return
+        if parsed.path == "/api/progress":
+            self._send_json(_fetch_progress)
+            return
         self._serve_static(parsed.path)
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/refresh":
             try:
-                result = collector.fetch_all()
+                result = _run_fetch_with_progress("manual")
                 self._send_json({"ok": True, **result, "time": utc_now_iso()})
             except urllib.error.URLError as e:
                 self._send_json({"ok": False, "error": f"network error: {e}"}, status=502)
