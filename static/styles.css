@@ -249,6 +249,140 @@ button:last-child {
   text-decoration: none;
 }
 
+/* ── 24h 快讯总结面板 ── */
+.btn-digest {
+  background: #6d28d9;
+}
+
+.digest-panel {
+  max-width: 1100px;
+  margin: 16px auto 0;
+  padding: 0 14px;
+}
+
+.digest-inner {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.digest-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.digest-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.digest-meta {
+  font-size: 12px;
+  color: var(--muted);
+  flex: 1;
+}
+
+.digest-close {
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.digest-close:hover {
+  background: #edf2f7;
+  color: var(--ink);
+}
+
+.digest-macro {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: #243140;
+  background: #f0f4ff;
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  border-radius: 0 8px 8px 0;
+}
+
+.digest-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.digest-col-head {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 0 8px;
+  border-bottom: 2px solid;
+  margin-bottom: 10px;
+}
+
+.bullish-col .digest-col-head {
+  color: var(--good);
+  border-color: var(--good);
+}
+
+.bearish-col .digest-col-head {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.digest-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.digest-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.bullish-col .digest-item {
+  border-left: 3px solid var(--good);
+  background: #f0faf5;
+}
+
+.bearish-col .digest-item {
+  border-left: 3px solid var(--bad);
+  background: #fff5f5;
+}
+
+.digest-ticker {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.digest-reason {
+  font-size: 13px;
+  color: #243140;
+  margin-bottom: 5px;
+  line-height: 1.5;
+}
+
+.digest-keynews {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.digest-empty {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
 @media (max-width: 900px) {
   .topbar {
     flex-direction: column;
@@ -258,5 +392,9 @@ button:last-child {
   .mock-form {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .digest-cols {
+    grid-template-columns: 1fr;
   }
 }

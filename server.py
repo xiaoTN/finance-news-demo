@@ -249,6 +249,49 @@ class Analyzer:
             "confidence": 0,
         }
 
+    def digest(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+        """汇总过去24h新闻，输出利好/利空股票列表及原因。"""
+        if not self.cfg.api_key:
+            return {"error": "未配置 API Key，无法生成汇总"}
+
+        # 构造简洁的新闻摘要列表喂给模型
+        news_lines = []
+        for i, ev in enumerate(events[:60], 1):
+            impact = ev.get("impact", "mixed")
+            title = (ev.get("title") or "")[:120]
+            why = (ev.get("why") or "")[:100]
+            tickers = ",".join(ev.get("tickers") or [])
+            news_lines.append(f"{i}. [{impact}] {title} | 标的:{tickers} | {why}")
+
+        prompt = {
+            "task": (
+                "你是资深美股买方分析师。根据以下过去24小时的财经新闻列表，"
+                "汇总出对哪些股票利好、对哪些股票利空，并给出简明因果解释。"
+                "优先选择各赛道龙头股（如科技选NVDA/AAPL/MSFT，能源选XLE，金融选XLF等），"
+                "除非新闻明确点名具体公司才用该公司股票代码。"
+                "每个股票只出现一次，合并同一股票的多条新闻影响后给出综合判断。"
+                "严格返回JSON，不得有任何额外文字。"
+            ),
+            "output_format": {
+                "bullish": [
+                    {"ticker": "股票代码", "reason": "利好原因，30-60字", "key_news": "最关键的1条新闻标题"}
+                ],
+                "bearish": [
+                    {"ticker": "股票代码", "reason": "利空原因，30-60字", "key_news": "最关键的1条新闻标题"}
+                ],
+                "macro_summary": "宏观环境一句话总结，50字以内",
+            },
+            "news": news_lines,
+        }
+
+        try:
+            data, raw = self._call_model(prompt)
+            if data and "bullish" in data and "bearish" in data:
+                return data
+            return {"error": f"模型返回格式异常: {raw[:300]}"}
+        except Exception as e:
+            return {"error": str(e)[:500]}
+
     def _call_model(self, prompt: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
         url = f"{self.cfg.base_url}/chat/completions"
         body = {
@@ -421,6 +464,28 @@ class Repo:
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
                 })
+        return result
+
+    def list_recent_events(self, hours: int = 24) -> list[dict[str, Any]]:
+        """查询最近 N 小时内抓取的事件。"""
+        cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE captured_at >= ? ORDER BY captured_at DESC",
+                (cutoff,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "title": r["title"],
+                "source_name": r["source_name"],
+                "impact": r["impact"],
+                "why": r["why"],
+                "tickers": safe_json_loads(r["tickers"]) or [],
+                "persons": safe_json_loads(r["persons"]) or [],
+                "horizon": r["horizon"],
+                "captured_at": r["captured_at"],
+            })
         return result
 
     def clear_events(self) -> int:
@@ -725,6 +790,22 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 deleted = repo.clear_events()
                 self._send_json({"ok": True, "deleted": deleted, "time": utc_now_iso()})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+        if parsed.path == "/api/digest":
+            try:
+                body = self._read_json_body()
+                hours = int(body.get("hours", 24))
+                events = repo.list_recent_events(hours=hours)
+                if not events:
+                    self._send_json({"ok": True, "bullish": [], "bearish": [], "macro_summary": "过去24小时暂无新闻数据", "event_count": 0})
+                    return
+                result = analyzer.digest(events)
+                if "error" in result:
+                    self._send_json({"ok": False, "error": result["error"]}, status=500)
+                    return
+                self._send_json({"ok": True, **result, "event_count": len(events), "time": utc_now_iso()})
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)}, status=500)
             return

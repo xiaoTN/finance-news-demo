@@ -2,6 +2,13 @@ const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refreshBtn");
 const reloadBtn = document.getElementById("reloadBtn");
 const clearBtn = document.getElementById("clearBtn");
+const digestBtn = document.getElementById("digestBtn");
+const digestPanel = document.getElementById("digestPanel");
+const digestCloseBtn = document.getElementById("digestCloseBtn");
+const digestMacro = document.getElementById("digestMacro");
+const digestMeta = document.getElementById("digestMeta");
+const digestBullish = document.getElementById("digestBullish");
+const digestBearish = document.getElementById("digestBearish");
 const sortSelect = document.getElementById("sortSelect");
 const eventListEl = document.getElementById("eventList");
 const tpl = document.getElementById("eventTpl");
@@ -169,8 +176,57 @@ async function clearEventsNow() {
   }
 }
 
+function renderDigestItems(container, items) {
+  container.innerHTML = "";
+  if (!items || items.length === 0) {
+    container.innerHTML = '<p class="digest-empty">暂无</p>';
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement("div");
+    card.className = "digest-item";
+    card.innerHTML = `
+      <div class="digest-ticker">${item.ticker || "-"}</div>
+      <div class="digest-reason">${item.reason || ""}</div>
+      <div class="digest-keynews">${item.key_news || ""}</div>
+    `;
+    container.appendChild(card);
+  }
+}
+
+async function runDigest() {
+  digestBtn.disabled = true;
+  statusEl.textContent = "正在生成 24h 快讯总结…";
+  digestPanel.hidden = true;
+  try {
+    const res = await fetch("/api/digest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours: 24 }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      statusEl.textContent = `总结失败: ${data.error || "unknown"}`;
+      return;
+    }
+    digestMacro.textContent = data.macro_summary || "";
+    digestMeta.textContent = `基于过去 24h ${data.event_count} 条新闻`;
+    renderDigestItems(digestBullish, data.bullish || []);
+    renderDigestItems(digestBearish, data.bearish || []);
+    digestPanel.hidden = false;
+    digestPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    statusEl.textContent = `24h 总结完成，分析了 ${data.event_count} 条新闻`;
+  } catch (e) {
+    statusEl.textContent = `总结失败: ${e.message}`;
+  } finally {
+    digestBtn.disabled = false;
+  }
+}
+
 refreshBtn.addEventListener("click", refreshNow);
 reloadBtn.addEventListener("click", loadEvents);
+digestBtn.addEventListener("click", runDigest);
+digestCloseBtn.addEventListener("click", () => { digestPanel.hidden = true; });
 clearBtn.addEventListener("click", clearEventsNow);
 sortSelect.addEventListener("change", loadEvents);
 

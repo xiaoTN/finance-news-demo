@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>金融新闻 AI 分析 Demo</title>
-    <link rel="stylesheet" href="/styles.css?v=3" />
+    <link rel="stylesheet" href="/styles.css?v=4" />
   </head>
   <body>
     <header class="topbar">
@@ -15,9 +15,31 @@
       <div class="actions">
         <button id="refreshBtn">立即抓取</button>
         <button id="reloadBtn">刷新列表</button>
+        <button id="digestBtn" class="btn-digest">24h 快讯总结</button>
         <button id="clearBtn">清空数据</button>
       </div>
     </header>
+
+    <div id="digestPanel" class="digest-panel" hidden>
+      <div class="digest-inner">
+        <div class="digest-header">
+          <span class="digest-title">过去 24h 快讯总结</span>
+          <span id="digestMeta" class="digest-meta"></span>
+          <button id="digestCloseBtn" class="digest-close" title="关闭">✕</button>
+        </div>
+        <p id="digestMacro" class="digest-macro"></p>
+        <div class="digest-cols">
+          <div class="digest-col bullish-col">
+            <div class="digest-col-head">利好</div>
+            <div id="digestBullish" class="digest-items"></div>
+          </div>
+          <div class="digest-col bearish-col">
+            <div class="digest-col-head">利空</div>
+            <div id="digestBearish" class="digest-items"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <main class="layout">
       <section class="panel">
@@ -50,6 +72,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=3"></script>
+    <script src="/app.js?v=4"></script>
   </body>
 </html>
