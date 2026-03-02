@@ -436,19 +436,29 @@ class Collector:
             if progress is not None:
                 progress["current_idx"] = idx + 1
                 progress["current_source"] = src["name"]
+                progress["phase"] = "fetching"
+                progress["analyzing_idx"] = 0
+                progress["analyzing_total"] = 0
             try:
                 items = self._fetch_source(src)
             except Exception:
                 items = []
-            for item in items:
+            valid_items = [
+                it for it in items
+                if normalize_text(it.get("title", "")) and normalize_text(it.get("url", ""))
+            ]
+            if progress is not None:
+                progress["phase"] = "analyzing"
+                progress["analyzing_total"] = len(valid_items)
+                progress["analyzing_idx"] = 0
+            for ai_idx, item in enumerate(valid_items):
                 seen += 1
                 if progress is not None:
                     progress["fetched"] = seen
+                    progress["analyzing_idx"] = ai_idx + 1
                 title = normalize_text(item.get("title", ""))
                 summary = normalize_text(item.get("summary", ""))
                 url = item.get("url", "")
-                if not title or not url:
-                    continue
                 merged = f"{title} {summary}"
                 persons = []
                 tickers = map_tickers(merged)
@@ -541,6 +551,9 @@ _fetch_progress: dict[str, Any] = {
     "total": len(SOURCES),
     "current_idx": 0,
     "current_source": "",
+    "phase": "",          # "fetching" | "analyzing"
+    "analyzing_idx": 0,   # 当前源正在分析第几条
+    "analyzing_total": 0, # 当前源共几条需要分析
     "fetched": 0,
     "inserted": 0,
     "done": False,
@@ -556,6 +569,9 @@ def _run_fetch_with_progress(label: str) -> dict[str, int]:
         "total": len(SOURCES),
         "current_idx": 0,
         "current_source": "",
+        "phase": "",
+        "analyzing_idx": 0,
+        "analyzing_total": 0,
         "fetched": 0,
         "inserted": 0,
         "done": False,

@@ -106,8 +106,16 @@ function startProgressPolling() {
       if (p.running) {
         const total = p.total || 1;
         const idx = p.current_idx || 0;
-        const src = p.current_source ? `${p.current_source}` : "";
-        statusEl.textContent = `正在抓取 [${idx}/${total}] ${src}… 已获取 ${p.fetched} 条，新增 ${p.inserted} 条`;
+        const src = p.current_source || "";
+        let phaseStr = "";
+        if (p.phase === "fetching") {
+          phaseStr = `拉取中`;
+        } else if (p.phase === "analyzing") {
+          const at = p.analyzing_total || 0;
+          const ai = p.analyzing_idx || 0;
+          phaseStr = `AI分析 ${ai}/${at}`;
+        }
+        statusEl.textContent = `[${idx}/${total}] ${src} ${phaseStr} | 累计 ${p.fetched} 条，新增 ${p.inserted} 条`;
       }
     } catch (_) {}
   }, 800);
