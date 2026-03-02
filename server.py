@@ -327,6 +327,16 @@ class Repo:
                 conn.execute("ALTER TABLE events ADD COLUMN error_detail TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_captured ON events(captured_at DESC)")
 
+    def existing_keys(self, keys: list[str]) -> set[str]:
+        if not keys:
+            return set()
+        with self._connect() as conn:
+            placeholders = ",".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT unique_key FROM events WHERE unique_key IN ({placeholders})", keys
+            ).fetchall()
+        return {r["unique_key"] for r in rows}
+
     def insert_event(self, event: dict[str, Any]) -> bool:
         with self._lock, self._connect() as conn:
             try:
@@ -447,11 +457,18 @@ class Collector:
                 it for it in items
                 if normalize_text(it.get("title", "")) and normalize_text(it.get("url", ""))
             ]
+            # 批量过滤已存在条目，只对真正新的才调 AI
+            candidate_keys = [f"{src['name']}|{normalize_text(it.get('url', ''))}" for it in valid_items]
+            already_exists = self.repo.existing_keys(candidate_keys)
+            new_items = [it for it, k in zip(valid_items, candidate_keys) if k not in already_exists]
+            skipped = len(valid_items) - len(new_items)
+            if skipped:
+                log(f"Skip {skipped} existing items from {src['name']}, {len(new_items)} new to analyze")
             if progress is not None:
                 progress["phase"] = "analyzing"
-                progress["analyzing_total"] = len(valid_items)
+                progress["analyzing_total"] = len(new_items)
                 progress["analyzing_idx"] = 0
-            for ai_idx, item in enumerate(valid_items):
+            for ai_idx, item in enumerate(new_items):
                 seen += 1
                 if progress is not None:
                     progress["fetched"] = seen
