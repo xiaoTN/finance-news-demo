@@ -627,6 +627,78 @@ repo = Repo(DB_PATH)
 analyzer = Analyzer()
 collector = Collector(repo, analyzer)
 
+# ── 股价缓存 ──────────────────────────────────────────────
+_quote_cache: dict[str, dict[str, Any]] = {}   # symbol -> {data, ts}
+_QUOTE_TTL = 60  # 秒
+
+_BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+def _fetch_quote_stooq(symbol: str, retries: int = 2) -> dict[str, Any] | None:
+    """从 stooq.com 获取单只股票行情，失败最多重试 retries 次。"""
+    sym_lower = symbol.lower()
+    url = f"https://stooq.com/q/l/?s={sym_lower}.us&f=sd2t2ohlcvn"
+    for attempt in range(retries + 1):
+        try:
+            if attempt > 0:
+                time.sleep(0.6 * attempt)
+            req = urllib.request.Request(url, headers={"User-Agent": _BROWSER_UA})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore").strip()
+            parts = raw.split(",")
+            if len(parts) < 8:
+                continue
+            close_str = parts[6].strip()
+            if close_str in ("N/D", "", "-"):
+                continue
+            close = float(close_str)
+            open_ = float(parts[3])
+            high  = float(parts[4])
+            low   = float(parts[5])
+            vol_str = parts[7].strip()
+            vol   = int(vol_str) if vol_str.lstrip("-").isdigit() else 0
+            name  = parts[8].strip() if len(parts) > 8 else symbol
+            change_pct = (close - open_) / open_ * 100 if open_ else 0
+            return {
+                "symbol": symbol.upper(),
+                "name": name,
+                "price": close,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "volume": vol,
+                "change_pct": round(change_pct, 2),
+                "date": parts[1].strip(),
+                "time": parts[2].strip(),
+            }
+        except Exception as e:
+            if attempt == retries:
+                log(f"Quote fetch failed for {symbol} after {retries+1} attempts: {e}")
+    return None
+
+def get_quotes(symbols: list[str]) -> dict[str, Any]:
+    """并发批量获取股价，优先走缓存。"""
+    now = time.time()
+    result: dict[str, Any] = {}
+    to_fetch = []
+    for sym in symbols:
+        sym = sym.upper()
+        cached = _quote_cache.get(sym)
+        if cached and now - cached["ts"] < _QUOTE_TTL:
+            result[sym] = cached["data"]
+        else:
+            to_fetch.append(sym)
+
+    if to_fetch:
+        for i, sym in enumerate(to_fetch):
+            if i > 0:
+                time.sleep(0.4)  # stooq 限速保护
+            data = _fetch_quote_stooq(sym)
+            if data:
+                _quote_cache[sym] = {"data": data, "ts": now}
+            result[sym] = data
+
+    return result
+
 # 全局抓取进度状态
 _fetch_progress: dict[str, Any] = {
     "running": False,
@@ -772,6 +844,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/progress":
             self._send_json(_fetch_progress)
+            return
+        if parsed.path == "/api/quotes":
+            q = urllib.parse.parse_qs(parsed.query)
+            raw_syms = q.get("symbols", [""])[0]
+            symbols = [s.strip().upper() for s in raw_syms.split(",") if s.strip()]
+            if not symbols:
+                self._send_json({"error": "symbols required"}, status=400)
+                return
+            quotes = get_quotes(symbols)
+            self._send_json({"quotes": quotes})
             return
         self._serve_static(parsed.path)
 

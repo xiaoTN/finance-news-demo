@@ -43,12 +43,94 @@ async function copyText(text) {
   document.body.removeChild(ta);
 }
 
+// ── 股价查询与 badge ─────────────────────────────────────
+
+const _quoteCache = {};  // symbol -> {data, ts}
+const QUOTE_TTL = 65000; // ms，略长于后端缓存
+
+async function fetchQuotes(symbols) {
+  if (!symbols || symbols.length === 0) return {};
+  const uniq = [...new Set(symbols.map(s => s.toUpperCase()))];
+  const now = Date.now();
+  const needed = uniq.filter(s => !_quoteCache[s] || now - _quoteCache[s].ts > QUOTE_TTL);
+  if (needed.length > 0) {
+    try {
+      const res = await fetch(`/api/quotes?symbols=${needed.join(",")}`);
+      const data = await res.json();
+      const quotes = data.quotes || {};
+      for (const [sym, q] of Object.entries(quotes)) {
+        _quoteCache[sym] = { data: q, ts: now };
+      }
+    } catch (_) {}
+  }
+  const result = {};
+  for (const s of uniq) {
+    result[s] = _quoteCache[s]?.data || null;
+  }
+  return result;
+}
+
+function makePriceCard(sym, q) {
+  const card = document.createElement("div");
+  card.className = "price-card";
+  if (!q) {
+    card.innerHTML = `<span class="pc-sym">${sym}</span><span class="pc-na">暂无数据</span>`;
+    return card;
+  }
+  const sign = q.change_pct >= 0 ? "+" : "";
+  const cls = q.change_pct >= 0 ? "up" : "down";
+  card.innerHTML = `
+    <span class="pc-sym">${q.symbol}</span>
+    <span class="pc-name">${q.name}</span>
+    <span class="pc-price">$${q.price.toFixed(2)}</span>
+    <span class="pc-chg ${cls}">${sign}${q.change_pct.toFixed(2)}%</span>
+    <span class="pc-detail">开 $${q.open.toFixed(2)} · 高 $${q.high.toFixed(2)} · 低 $${q.low.toFixed(2)} · 量 ${(q.volume/1e6).toFixed(1)}M</span>
+    <span class="pc-time">${q.date} ${q.time}</span>
+  `;
+  return card;
+}
+
+function makeTickerBadge(sym, containerEl) {
+  const badge = document.createElement("button");
+  badge.className = "ticker-badge";
+  badge.textContent = sym;
+  badge.type = "button";
+  let expanded = false;
+  let priceEl = null;
+
+  badge.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (expanded && priceEl) {
+      priceEl.remove();
+      priceEl = null;
+      expanded = false;
+      badge.classList.remove("active");
+      return;
+    }
+    badge.classList.add("active");
+    badge.textContent = sym + " …";
+    const quotes = await fetchQuotes([sym]);
+    badge.textContent = sym;
+    priceEl = makePriceCard(sym, quotes[sym]);
+    badge.after(priceEl);
+    expanded = true;
+  });
+  return badge;
+}
+
+function renderTickerRow(container, tickers) {
+  container.innerHTML = "";
+  if (!tickers || tickers.length === 0) return;
+  for (const sym of tickers) {
+    container.appendChild(makeTickerBadge(sym, container));
+  }
+}
+
 function renderEvents(items) {
   eventListEl.innerHTML = "";
   for (const item of items) {
     const node = tpl.content.firstElementChild.cloneNode(true);
-    const sourceEl = node.querySelector(".source");
-    sourceEl.textContent = item.source_name;
+    node.querySelector(".source").textContent = item.source_name;
     const impactEl = node.querySelector(".impact");
     const impact = impactText(item.impact);
     impactEl.textContent = impact;
@@ -83,11 +165,11 @@ function renderEvents(items) {
       copyBtn.hidden = true;
     }
     const persons = (item.persons || []).join(", ") || "无";
-    const tickers = (item.tickers || []).join(", ") || "无";
     const publishedStr = item.published_at ? `发布: ${toLocal(item.published_at)} | ` : "";
-    node.querySelector(".meta").textContent = `人物: ${persons} | 标的: ${tickers} | 周期: ${item.horizon} | ${publishedStr}抓取: ${toLocal(item.captured_at)}`;
-    const a = node.querySelector(".link");
-    a.href = item.url;
+    node.querySelector(".meta").textContent = `人物: ${persons} | 周期: ${item.horizon} | ${publishedStr}抓取: ${toLocal(item.captured_at)}`;
+    // ticker badges
+    renderTickerRow(node.querySelector(".ticker-row"), item.tickers || []);
+    node.querySelector(".link").href = item.url;
     eventListEl.appendChild(node);
   }
 }
@@ -176,17 +258,43 @@ async function clearEventsNow() {
   }
 }
 
-function renderDigestItems(container, items) {
+async function renderDigestItems(container, items) {
   container.innerHTML = "";
   if (!items || items.length === 0) {
     container.innerHTML = '<p class="digest-empty">暂无</p>';
     return;
   }
+  // 预取所有 ticker 的股价
+  const syms = items.map(i => i.ticker).filter(Boolean);
+  const quotes = await fetchQuotes(syms);
+
   for (const item of items) {
+    const sym = item.ticker || "-";
+    const q = quotes[sym] || null;
     const card = document.createElement("div");
     card.className = "digest-item";
+
+    let priceHtml = "";
+    if (q) {
+      const sign = q.change_pct >= 0 ? "+" : "";
+      const cls = q.change_pct >= 0 ? "up" : "down";
+      priceHtml = `
+        <div class="digest-price-row">
+          <span class="dpr-price">$${q.price.toFixed(2)}</span>
+          <span class="dpr-chg ${cls}">${sign}${q.change_pct.toFixed(2)}%</span>
+          <span class="dpr-detail">开 $${q.open.toFixed(2)} · 高 $${q.high.toFixed(2)} · 低 $${q.low.toFixed(2)} · 量 ${(q.volume/1e6).toFixed(1)}M</span>
+        </div>
+      `;
+    } else {
+      priceHtml = `<div class="digest-price-row"><span class="dpr-na">行情加载中…</span></div>`;
+    }
+
     card.innerHTML = `
-      <div class="digest-ticker">${item.ticker || "-"}</div>
+      <div class="digest-ticker-row">
+        <span class="digest-ticker">${sym}</span>
+        ${q ? `<span class="digest-fullname">${q.name}</span>` : ""}
+      </div>
+      ${priceHtml}
       <div class="digest-reason">${item.reason || ""}</div>
       <div class="digest-keynews">${item.key_news || ""}</div>
     `;
@@ -211,8 +319,10 @@ async function runDigest() {
     }
     digestMacro.textContent = data.macro_summary || "";
     digestMeta.textContent = `基于过去 24h ${data.event_count} 条新闻`;
-    renderDigestItems(digestBullish, data.bullish || []);
-    renderDigestItems(digestBearish, data.bearish || []);
+    await Promise.all([
+      renderDigestItems(digestBullish, data.bullish || []),
+      renderDigestItems(digestBearish, data.bearish || []),
+    ]);
     digestPanel.hidden = false;
     digestPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
     statusEl.textContent = `24h 总结完成，分析了 ${data.event_count} 条新闻`;

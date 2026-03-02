@@ -249,6 +249,140 @@ button:last-child {
   text-decoration: none;
 }
 
+/* ── ticker badge & 行情卡片 ── */
+.ticker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.ticker-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ticker-badge:hover,
+.ticker-badge.active {
+  background: #818cf8;
+  color: #fff;
+  border-color: #818cf8;
+}
+
+.price-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  background: #f8faff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin: 4px 0 4px 4px;
+  font-size: 13px;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.pc-sym {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.pc-name {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pc-price {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.pc-chg {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.pc-chg.up   { color: var(--good); }
+.pc-chg.down { color: var(--bad); }
+
+.pc-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pc-time {
+  font-size: 11px;
+  color: #aab;
+  margin-left: auto;
+}
+
+.pc-na {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── digest 面板内的股价行 ── */
+.digest-ticker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.digest-fullname {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.digest-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.dpr-price {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.dpr-chg {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.dpr-chg.up   { color: var(--good); }
+.dpr-chg.down { color: var(--bad); }
+
+.dpr-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dpr-na {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ── 24h 快讯总结面板 ── */
 .btn-digest {
   background: #6d28d9;
