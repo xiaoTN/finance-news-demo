@@ -223,11 +223,32 @@ button:last-child {
 }
 
 .summary,
+.analysis-progress,
 .why,
 .meta {
   margin: 7px 0;
   color: #243140;
   font-size: 14px;
+}
+
+.analysis-progress {
+  font-weight: 600;
+}
+
+.analysis-progress.pending {
+  color: #6b7280;
+}
+
+.analysis-progress.analyzing {
+  color: #0a5bd3;
+}
+
+.analysis-progress.done {
+  color: #0f8c51;
+}
+
+.analysis-progress.failed {
+  color: #bd2a2a;
 }
 
 .copy-error-btn {

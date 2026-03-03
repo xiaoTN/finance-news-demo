@@ -11,6 +11,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from queue import Queue
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -361,6 +362,9 @@ class Repo:
                   error_detail TEXT,
                   horizon TEXT,
                   confidence INTEGER,
+                  analysis_status TEXT,
+                  analysis_started_at TEXT,
+                  analysis_finished_at TEXT,
                   unique_key TEXT NOT NULL UNIQUE
                 )
                 """
@@ -368,6 +372,12 @@ class Repo:
             cols = {r["name"] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
             if "error_detail" not in cols:
                 conn.execute("ALTER TABLE events ADD COLUMN error_detail TEXT")
+            if "analysis_status" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN analysis_status TEXT")
+            if "analysis_started_at" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN analysis_started_at TEXT")
+            if "analysis_finished_at" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN analysis_finished_at TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_captured ON events(captured_at DESC)")
 
     def existing_keys(self, keys: list[str]) -> set[str]:
@@ -380,15 +390,16 @@ class Repo:
             ).fetchall()
         return {r["unique_key"] for r in rows}
 
-    def insert_event(self, event: dict[str, Any]) -> bool:
+    def insert_event(self, event: dict[str, Any]) -> int | None:
         with self._lock, self._connect() as conn:
             try:
-                conn.execute(
+                cur = conn.execute(
                     """
                     INSERT INTO events (
                       source_name,title,url,published_at,captured_at,summary,persons,tickers,
-                      impact,why,error_detail,horizon,confidence,unique_key
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                      impact,why,error_detail,horizon,confidence,analysis_status,analysis_started_at,
+                      analysis_finished_at,unique_key
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         event["source_name"],
@@ -404,12 +415,98 @@ class Repo:
                         event.get("error_detail", ""),
                         event.get("horizon", "intraday"),
                         int(event.get("confidence", 50)),
+                        event.get("analysis_status", "done"),
+                        event.get("analysis_started_at"),
+                        event.get("analysis_finished_at"),
                         event["unique_key"],
                     ),
                 )
-                return True
+                return int(cur.lastrowid)
             except sqlite3.IntegrityError:
-                return False
+                return None
+
+    def mark_event_analyzing(self, event_id: int) -> None:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET analysis_status = ?, analysis_started_at = ?
+                WHERE id = ?
+                """,
+                ("analyzing", utc_now_iso(), event_id),
+            )
+
+    def finish_event_analysis(self, event_id: int, ai: dict[str, Any], status: str) -> None:
+        impact = ai.get("impact", "mixed")
+        if status != "done":
+            impact = "mixed"
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE events
+                SET summary = ?, impact = ?, why = ?, error_detail = ?, horizon = ?, confidence = ?,
+                    analysis_status = ?, analysis_finished_at = ?
+                WHERE id = ?
+                """,
+                (
+                    ai.get("summary", ""),
+                    impact,
+                    ai.get("why", ""),
+                    ai.get("error_detail", ""),
+                    ai.get("horizon", "intraday"),
+                    int(ai.get("confidence", 0)),
+                    status,
+                    utc_now_iso(),
+                    event_id,
+                ),
+            )
+
+    def reset_stuck_analyzing(self) -> int:
+        """重启恢复：将卡在 analyzing 的任务回退为 pending，等待重试。"""
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE events
+                SET analysis_status = 'pending', analysis_started_at = NULL
+                WHERE analysis_status = 'analyzing'
+                """
+            )
+            return int(cur.rowcount or 0)
+
+    def list_pending_analysis_tasks(self, limit: int = 500) -> list[dict[str, Any]]:
+        limit = max(1, min(2000, limit))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, title, summary, persons, tickers
+                FROM events
+                WHERE analysis_status = 'pending'
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["id"],
+                "title": r["title"],
+                "summary": r["summary"] or "",
+                "persons": safe_json_loads(r["persons"]) or [],
+                "tickers": safe_json_loads(r["tickers"]) or [],
+            })
+        return result
+
+    def count_pending_analysis(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM events
+                WHERE analysis_status IN ('pending', 'analyzing')
+                """
+            ).fetchone()
+        return int(row["cnt"] if row else 0)
 
     def list_events(self, limit: int = 50, sort: str = "captured") -> list[dict[str, Any]]:
         limit = max(1, min(200, limit))
@@ -434,6 +531,9 @@ class Repo:
                     "error_detail": r["error_detail"] or "",
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
+                    "analysis_status": r["analysis_status"] or ("done" if r["why"] else "pending"),
+                    "analysis_started_at": r["analysis_started_at"],
+                    "analysis_finished_at": r["analysis_finished_at"],
                 })
             # Sort by published_at (convert to ISO for proper sorting)
             def get_published_sort_key(item):
@@ -463,6 +563,9 @@ class Repo:
                     "error_detail": r["error_detail"] or "",
                     "horizon": r["horizon"],
                     "confidence": r["confidence"],
+                    "analysis_status": r["analysis_status"] or ("done" if r["why"] else "pending"),
+                    "analysis_started_at": r["analysis_started_at"],
+                    "analysis_finished_at": r["analysis_finished_at"],
                 })
         return result
 
@@ -528,7 +631,7 @@ class Collector:
             new_items = [it for it, k in zip(valid_items, candidate_keys) if k not in already_exists]
             skipped = len(valid_items) - len(new_items)
             if skipped:
-                log(f"Skip {skipped} existing items from {src['name']}, {len(new_items)} new to analyze")
+                log(f"来源 {src['name']} 跳过已存在 {skipped} 条，待分析新增 {len(new_items)} 条")
             if progress is not None:
                 progress["phase"] = "analyzing"
                 progress["analyzing_total"] = len(new_items)
@@ -544,24 +647,34 @@ class Collector:
                 merged = f"{title} {summary}"
                 persons = []
                 tickers = map_tickers(merged)
-                ai = self.analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
                 event = {
                     "source_name": src["name"],
                     "title": title,
                     "url": url,
                     "published_at": item.get("published_at"),
                     "captured_at": utc_now_iso(),
-                    "summary": ai.get("summary", summary),
+                    "summary": summary or title,
                     "persons": persons,
                     "tickers": tickers,
-                    "impact": ai.get("impact", "mixed"),
-                    "why": ai.get("why", ""),
-                    "error_detail": ai.get("error_detail", ""),
-                    "horizon": ai.get("horizon", "intraday"),
-                    "confidence": int(ai.get("confidence", 50)),
+                    "impact": "",
+                    "why": "",
+                    "error_detail": "",
+                    "horizon": "",
+                    "confidence": 0,
+                    "analysis_status": "pending",
+                    "analysis_started_at": None,
+                    "analysis_finished_at": None,
                     "unique_key": f"{src['name']}|{url}",
                 }
-                if self.repo.insert_event(event):
+                event_id = self.repo.insert_event(event)
+                if event_id is not None:
+                    _enqueue_analysis({
+                        "id": event_id,
+                        "title": title,
+                        "summary": summary,
+                        "persons": persons,
+                        "tickers": tickers,
+                    })
                     inserted += 1
                     if progress is not None:
                         progress["inserted"] = inserted
@@ -571,14 +684,14 @@ class Collector:
         try:
             if src["type"] == "rss":
                 items = self._fetch_rss(src["url"])
-                log(f"Fetched {src['name']}: {len(items)} items")
+                log(f"来源 {src['name']} 抓取完成，共 {len(items)} 条")
                 return items
             if src["type"] == "json":
                 items = self._fetch_nvidia_json(src["url"])
-                log(f"Fetched {src['name']}: {len(items)} items")
+                log(f"来源 {src['name']} 抓取完成，共 {len(items)} 条")
                 return items
         except Exception as e:
-            log(f"Failed to fetch {src['name']}: {e}")
+            log(f"来源 {src['name']} 抓取失败: {e}")
         return []
 
     def _fetch_rss(self, url: str) -> list[dict[str, str]]:
@@ -672,7 +785,7 @@ def _fetch_quote_stooq(symbol: str, retries: int = 2) -> dict[str, Any] | None:
             }
         except Exception as e:
             if attempt == retries:
-                log(f"Quote fetch failed for {symbol} after {retries+1} attempts: {e}")
+                log(f"股票 {symbol} 行情抓取失败，重试 {retries+1} 次后仍失败: {e}")
     return None
 
 def get_quotes(symbols: list[str]) -> dict[str, Any]:
@@ -715,6 +828,105 @@ _fetch_progress: dict[str, Any] = {
     "finished_at": "",
 }
 
+# 全局 AI 分析进度状态
+_analysis_queue: Queue[dict[str, Any]] = Queue()
+_analysis_progress: dict[str, Any] = {
+    "running": False,
+    "current_event_id": 0,
+    "current_title": "",
+    "done": 0,
+    "failed": 0,
+}
+_analysis_lock = threading.Lock()
+_analysis_worker_started = False
+_analysis_enqueued_ids: set[int] = set()
+
+
+def _ensure_analysis_worker() -> None:
+    global _analysis_worker_started
+    with _analysis_lock:
+        if _analysis_worker_started:
+            return
+        t = threading.Thread(target=_analysis_worker_loop, daemon=True)
+        t.start()
+        _analysis_worker_started = True
+
+
+def _enqueue_analysis(task: dict[str, Any]) -> None:
+    task_id = int(task["id"])
+    with _analysis_lock:
+        if task_id in _analysis_enqueued_ids:
+            return
+        _analysis_enqueued_ids.add(task_id)
+    _ensure_analysis_worker()
+    _analysis_queue.put(task)
+
+
+def _analysis_worker_loop() -> None:
+    while True:
+        task = _analysis_queue.get()
+        event_id = int(task["id"])
+        title = normalize_text(task.get("title", ""))
+        summary = normalize_text(task.get("summary", ""))
+        persons = task.get("persons", []) or []
+        tickers = task.get("tickers", []) or []
+        _analysis_progress["running"] = True
+        _analysis_progress["current_event_id"] = event_id
+        _analysis_progress["current_title"] = title
+        try:
+            repo.mark_event_analyzing(event_id)
+            ai = analyzer.analyze(title=title, summary=summary, persons=persons, tickers=tickers)
+            status = "failed" if ai.get("error_detail") else "done"
+            repo.finish_event_analysis(event_id, ai, status=status)
+            if status == "failed":
+                _analysis_progress["failed"] += 1
+            else:
+                _analysis_progress["done"] += 1
+        except Exception as e:
+            fallback = {
+                "summary": summary or title,
+                "impact": "mixed",
+                "why": "模型调用失败，无法判断",
+                "error_detail": str(e)[:2000],
+                "horizon": "intraday",
+                "confidence": 0,
+            }
+            repo.finish_event_analysis(event_id, fallback, status="failed")
+            _analysis_progress["failed"] += 1
+        finally:
+            _analysis_queue.task_done()
+            with _analysis_lock:
+                _analysis_enqueued_ids.discard(event_id)
+            if _analysis_queue.qsize() == 0:
+                _analysis_progress["running"] = False
+                _analysis_progress["current_event_id"] = 0
+                _analysis_progress["current_title"] = ""
+
+
+def _recover_pending_analysis_tasks() -> int:
+    """启动恢复：把遗留 pending/analyzing 任务重新入队。"""
+    recovered_analyzing = repo.reset_stuck_analyzing()
+    tasks = repo.list_pending_analysis_tasks(limit=2000)
+    for t in tasks:
+        _enqueue_analysis(t)
+    if recovered_analyzing > 0 or tasks:
+        log(f"分析任务恢复：回退 analyzing={recovered_analyzing}，重新入队 pending={len(tasks)}")
+    return len(tasks)
+
+
+def _get_progress_snapshot() -> dict[str, Any]:
+    db_pending = repo.count_pending_analysis()
+    return {
+        **_fetch_progress,
+        "analysis_running": bool(_analysis_progress["running"]),
+        "analysis_current_event_id": _analysis_progress["current_event_id"],
+        "analysis_current_title": _analysis_progress["current_title"],
+        "analysis_done": _analysis_progress["done"],
+        "analysis_failed": _analysis_progress["failed"],
+        "analysis_pending": _analysis_queue.qsize(),
+        "analysis_pending_db": db_pending,
+    }
+
 
 def _run_fetch_with_progress(label: str) -> dict[str, int]:
     global _fetch_progress
@@ -732,6 +944,10 @@ def _run_fetch_with_progress(label: str) -> dict[str, int]:
         "started_at": utc_now_iso(),
         "finished_at": "",
     })
+    _analysis_progress["done"] = 0
+    _analysis_progress["failed"] = 0
+    _analysis_progress["current_event_id"] = 0
+    _analysis_progress["current_title"] = ""
     try:
         result = collector.fetch_all(progress=_fetch_progress)
         _fetch_progress["fetched"] = result["seen"]
@@ -745,28 +961,28 @@ def _run_fetch_with_progress(label: str) -> dict[str, int]:
 
 
 def auto_refresh_loop() -> None:
-    log(f"Auto refresh loop started: interval={REFRESH_SECONDS}s")
+    log(f"自动刷新循环已启动，间隔 {REFRESH_SECONDS} 秒")
     while True:
         try:
             started = time.time()
             result = _run_fetch_with_progress("auto")
             elapsed = round(time.time() - started, 2)
-            log(f"Auto refresh done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
+            log(f"自动刷新完成：扫描 {result['seen']} 条，新增 {result['inserted']} 条，耗时 {elapsed} 秒")
         except Exception as e:
-            log(f"Auto refresh failed: {e}")
+            log(f"自动刷新失败: {e}")
             traceback.print_exc()
         time.sleep(REFRESH_SECONDS)
 
 
 def boot_fetch_once() -> None:
     try:
-        log("Boot fetch started")
+        log("启动时首次抓取开始")
         started = time.time()
         result = _run_fetch_with_progress("boot")
         elapsed = round(time.time() - started, 2)
-        log(f"Boot fetch done: seen={result['seen']} inserted={result['inserted']} elapsed={elapsed}s")
+        log(f"启动时首次抓取完成：扫描 {result['seen']} 条，新增 {result['inserted']} 条，耗时 {elapsed} 秒")
     except Exception as e:
-        log(f"Boot fetch failed: {e}")
+        log(f"启动时首次抓取失败: {e}")
         traceback.print_exc()
 
 
@@ -843,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"items": repo.list_events(limit=limit, sort=sort)})
             return
         if parsed.path == "/api/progress":
-            self._send_json(_fetch_progress)
+            self._send_json(_get_progress_snapshot())
             return
         if parsed.path == "/api/quotes":
             q = urllib.parse.parse_qs(parsed.query)
@@ -895,14 +1111,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    log(f"Loading config: MODEL={analyzer.cfg.model} BASE_URL={analyzer.cfg.base_url}")
+    log(f"加载配置：MODEL={analyzer.cfg.model} BASE_URL={analyzer.cfg.base_url}")
     if not analyzer.cfg.api_key:
-        log("WARNING: API_KEY is empty; analysis will return '无法判断'")
+        log("警告：API_KEY 为空，分析结果将返回“无法判断”")
     if "/anthropic" in analyzer.cfg.base_url and not analyzer.cfg.base_url.endswith("/v1"):
-        log("WARNING: BASE_URL looks non OpenAI-compatible. Expected a Chat Completions base URL (usually ends with /v1).")
+        log("警告：BASE_URL 看起来不是 OpenAI 兼容地址，期望 Chat Completions 接口地址（通常以 /v1 结尾）")
 
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    log(f"HTTP server listening on http://{HOST}:{PORT}")
+    log(f"HTTP 服务已启动，监听地址 http://{HOST}:{PORT}")
+
+    # 先启动分析 worker 并恢复重启前遗留任务，避免 pending 永久不动
+    _ensure_analysis_worker()
+    _recover_pending_analysis_tasks()
 
     auto_thread = threading.Thread(target=auto_refresh_loop, daemon=True)
     auto_thread.start()
