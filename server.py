@@ -509,65 +509,50 @@ class Repo:
         return int(row["cnt"] if row else 0)
 
     def list_events(self, limit: int = 50, sort: str = "captured") -> list[dict[str, Any]]:
+        """只返回 AI 分析已完成（done/failed）的事件，确保每条都有中文摘要与分析结论。"""
         limit = max(1, min(200, limit))
+        done_filter = "WHERE analysis_status IN ('done', 'failed')"
+
+        def _row_to_dict(r) -> dict[str, Any]:
+            return {
+                "id": r["id"],
+                "source_name": r["source_name"],
+                "title": r["title"],
+                "url": r["url"],
+                "published_at": r["published_at"],
+                "captured_at": r["captured_at"],
+                "summary": r["summary"],
+                "persons": safe_json_loads(r["persons"]) or [],
+                "tickers": safe_json_loads(r["tickers"]) or [],
+                "impact": r["impact"],
+                "why": r["why"],
+                "error_detail": r["error_detail"] or "",
+                "horizon": r["horizon"],
+                "confidence": r["confidence"],
+                "analysis_status": r["analysis_status"] or "done",
+                "analysis_started_at": r["analysis_started_at"],
+                "analysis_finished_at": r["analysis_finished_at"],
+            }
+
         if sort == "published":
-            # Fetch more rows, then sort in Python with proper ISO conversion
             with self._connect() as conn:
-                rows = conn.execute("SELECT * FROM events LIMIT ?", (limit * 3,)).fetchall()
-            items = []
-            for r in rows:
-                items.append({
-                    "id": r["id"],
-                    "source_name": r["source_name"],
-                    "title": r["title"],
-                    "url": r["url"],
-                    "published_at": r["published_at"],
-                    "captured_at": r["captured_at"],
-                    "summary": r["summary"],
-                    "persons": safe_json_loads(r["persons"]) or [],
-                    "tickers": safe_json_loads(r["tickers"]) or [],
-                    "impact": r["impact"],
-                    "why": r["why"],
-                    "error_detail": r["error_detail"] or "",
-                    "horizon": r["horizon"],
-                    "confidence": r["confidence"],
-                    "analysis_status": r["analysis_status"] or ("done" if r["why"] else "pending"),
-                    "analysis_started_at": r["analysis_started_at"],
-                    "analysis_finished_at": r["analysis_finished_at"],
-                })
-            # Sort by published_at (convert to ISO for proper sorting)
+                rows = conn.execute(
+                    f"SELECT * FROM events {done_filter} LIMIT ?", (limit * 3,)
+                ).fetchall()
+            items = [_row_to_dict(r) for r in rows]
+
             def get_published_sort_key(item):
                 iso = parse_rfc822_to_iso(item.get("published_at", "") or "")
                 return iso or ""
             items.sort(key=get_published_sort_key, reverse=True)
-            result = items[:limit]
+            return items[:limit]
         else:
             with self._connect() as conn:
                 rows = conn.execute(
-                    "SELECT * FROM events ORDER BY captured_at DESC, id DESC LIMIT ?", (limit,)
+                    f"SELECT * FROM events {done_filter} ORDER BY captured_at DESC, id DESC LIMIT ?",
+                    (limit,)
                 ).fetchall()
-            result = []
-            for r in rows:
-                result.append({
-                    "id": r["id"],
-                    "source_name": r["source_name"],
-                    "title": r["title"],
-                    "url": r["url"],
-                    "published_at": r["published_at"],
-                    "captured_at": r["captured_at"],
-                    "summary": r["summary"],
-                    "persons": safe_json_loads(r["persons"]) or [],
-                    "tickers": safe_json_loads(r["tickers"]) or [],
-                    "impact": r["impact"],
-                    "why": r["why"],
-                    "error_detail": r["error_detail"] or "",
-                    "horizon": r["horizon"],
-                    "confidence": r["confidence"],
-                    "analysis_status": r["analysis_status"] or ("done" if r["why"] else "pending"),
-                    "analysis_started_at": r["analysis_started_at"],
-                    "analysis_finished_at": r["analysis_finished_at"],
-                })
-        return result
+            return [_row_to_dict(r) for r in rows]
 
     def list_recent_events(self, hours: int = 24) -> list[dict[str, Any]]:
         """查询最近 N 小时内抓取的事件。"""

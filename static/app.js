@@ -133,11 +133,11 @@ function renderEvents(items) {
   for (const item of items) {
     const node = tpl.content.firstElementChild.cloneNode(true);
     node.querySelector(".source").textContent = item.source_name;
-    const analysisStatus = item.analysis_status || "pending";
+    const analysisStatus = item.analysis_status || "done";
     const progressEl = node.querySelector(".analysis-progress");
     const whyEl = node.querySelector(".why");
     const impactEl = node.querySelector(".impact");
-    const impact = analysisStatus === "done" ? impactText(item.impact) : "";
+    const impact = impactText(item.impact);
     impactEl.textContent = impact;
     if (impact) {
       impactEl.classList.add(item.impact);
@@ -147,21 +147,14 @@ function renderEvents(items) {
     }
     node.querySelector(".title").textContent = item.title;
     node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
-    if (analysisStatus === "pending") {
-      progressEl.textContent = "分析进度：等待 AI 分析";
-      progressEl.className = "analysis-progress pending";
-      whyEl.textContent = "原因：分析完成后显示";
-    } else if (analysisStatus === "analyzing") {
-      progressEl.textContent = "分析进度：AI 分析中...";
-      progressEl.className = "analysis-progress analyzing";
-      whyEl.textContent = "原因：分析中";
-    } else if (analysisStatus === "failed") {
-      progressEl.textContent = "分析进度：分析失败（已回退默认结论）";
+    if (analysisStatus === "failed") {
+      const confidence = Number(item.confidence || 0);
+      progressEl.textContent = `置信度 ${confidence} · 分析异常`;
       progressEl.className = "analysis-progress failed";
       whyEl.textContent = `原因：${item.why || "模型调用失败，无法判断"}`;
     } else {
       const confidence = Number(item.confidence || 0);
-      progressEl.textContent = `分析进度：已完成（置信度 ${confidence}）`;
+      progressEl.textContent = `置信度 ${confidence}`;
       progressEl.className = "analysis-progress done";
       whyEl.textContent = `原因：${item.why || "-"}`;
     }
