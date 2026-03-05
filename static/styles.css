@@ -318,6 +318,18 @@ button:last-child {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideInBubble {
+  0%   { opacity: 0; transform: translateY(18px) scale(0.97); box-shadow: 0 0 0 0 rgba(10,91,211,0); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.005); box-shadow: 0 0 0 6px rgba(10,91,211,0.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); box-shadow: 0 0 0 0 rgba(10,91,211,0); }
+}
+
+.event.new-bubble {
+  animation: slideInBubble 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  border-color: #93c5fd;
+  background: linear-gradient(135deg, #f0f7ff 0%, var(--card) 60%);
+}
+
 .pc-sym {
   font-weight: 700;
   font-size: 14px;

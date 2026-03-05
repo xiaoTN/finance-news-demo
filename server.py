@@ -989,6 +989,19 @@ class Handler(BaseHTTPRequestHandler):
             quotes = get_quotes(symbols)
             self._send_json({"quotes": quotes})
             return
+        if parsed.path == "/api/digest/status":
+            with _digest_lock:
+                snap = dict(_digest_state)
+            if snap["running"] and snap["started_at"]:
+                try:
+                    started = dt.datetime.fromisoformat(snap["started_at"].replace("Z", "+00:00"))
+                    snap["elapsed"] = round(
+                        (dt.datetime.now(dt.timezone.utc) - started).total_seconds(), 1
+                    )
+                except Exception:
+                    pass
+            self._send_json(snap)
+            return
         self._serve_static(parsed.path)
 
     def do_POST(self) -> None:
@@ -1024,20 +1037,6 @@ class Handler(BaseHTTPRequestHandler):
             t = threading.Thread(target=_run_digest_async, args=(hours,), daemon=True)
             t.start()
             self._send_json({"ok": True, "accepted": True})
-            return
-        if parsed.path == "/api/digest/status":
-            with _digest_lock:
-                snap = dict(_digest_state)
-            # 正在运行时实时更新 elapsed
-            if snap["running"] and snap["started_at"]:
-                try:
-                    started = dt.datetime.fromisoformat(snap["started_at"].replace("Z", "+00:00"))
-                    snap["elapsed"] = round(
-                        (dt.datetime.now(dt.timezone.utc) - started).total_seconds(), 1
-                    )
-                except Exception:
-                    pass
-            self._send_json(snap)
             return
         self._send_json({"ok": False, "error": "not found"}, status=404)
 

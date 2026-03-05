@@ -14,6 +14,8 @@ const eventListEl = document.getElementById("eventList");
 const tpl = document.getElementById("eventTpl");
 let _loadingEvents = false;
 let _lastEventsRefreshAt = 0;
+let _knownEventIds = new Set();
+let _isFirstLoad = true;
 
 function impactText(v) {
   if (v === "bullish") return "利好";
@@ -128,73 +130,114 @@ function renderTickerRow(container, tickers) {
   }
 }
 
-function renderEvents(items) {
-  eventListEl.innerHTML = "";
-  for (const item of items) {
-    const node = tpl.content.firstElementChild.cloneNode(true);
-    node.querySelector(".source").textContent = item.source_name;
-    const analysisStatus = item.analysis_status || "done";
-    const progressEl = node.querySelector(".analysis-progress");
-    const whyEl = node.querySelector(".why");
-    const impactEl = node.querySelector(".impact");
-    const impact = impactText(item.impact);
-    impactEl.textContent = impact;
-    if (impact) {
-      impactEl.classList.add(item.impact);
-      impactEl.style.display = "inline";
-    } else {
-      impactEl.style.display = "none";
-    }
-    node.querySelector(".title").textContent = item.title;
-    node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
-    if (analysisStatus === "failed") {
-      const confidence = Number(item.confidence || 0);
-      progressEl.textContent = `置信度 ${confidence} · 分析异常`;
-      progressEl.className = "analysis-progress failed";
-      whyEl.textContent = `原因：${item.why || "模型调用失败，无法判断"}`;
-    } else {
-      const confidence = Number(item.confidence || 0);
-      progressEl.textContent = `置信度 ${confidence}`;
-      progressEl.className = "analysis-progress done";
-      whyEl.textContent = `原因：${item.why || "-"}`;
-    }
-    const errorDetail = (item.error_detail || "").trim();
-    const copyBtn = node.querySelector(".copy-error-btn");
-    if (errorDetail) {
-      copyBtn.hidden = false;
-      copyBtn.addEventListener("click", async () => {
-        const detail = [
-          `title=${item.title || ""}`,
-          `source=${item.source_name || ""}`,
-          `time=${item.captured_at || ""}`,
-          `model_error=${errorDetail}`,
-        ].join("\n");
-        try {
-          await copyText(detail);
-          statusEl.textContent = "失败详情已复制";
-        } catch (e) {
-          statusEl.textContent = `复制失败: ${e.message}`;
-        }
-      });
-    } else {
-      copyBtn.hidden = true;
-    }
-    const persons = (item.persons || []).join(", ") || "无";
-    const publishedStr = item.published_at ? `发布: ${toLocal(item.published_at)} | ` : "";
-    node.querySelector(".meta").textContent = `人物: ${persons} | 周期: ${item.horizon} | ${publishedStr}抓取: ${toLocal(item.captured_at)}`;
-    // ticker badges
-    renderTickerRow(node.querySelector(".ticker-row"), item.tickers || []);
-    node.querySelector(".link").href = item.url;
-    eventListEl.appendChild(node);
+function buildEventNode(item, isNew) {
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  node.dataset.eventId = item.id;
+  node.querySelector(".source").textContent = item.source_name;
+  const analysisStatus = item.analysis_status || "done";
+  const progressEl = node.querySelector(".analysis-progress");
+  const whyEl = node.querySelector(".why");
+  const impactEl = node.querySelector(".impact");
+  const impact = impactText(item.impact);
+  impactEl.textContent = impact;
+  if (impact) {
+    impactEl.classList.add(item.impact);
+    impactEl.style.display = "inline";
+  } else {
+    impactEl.style.display = "none";
   }
+  node.querySelector(".title").textContent = item.title;
+  node.querySelector(".summary").textContent = `摘要：${item.summary || "-"}`;
+  if (analysisStatus === "failed") {
+    const confidence = Number(item.confidence || 0);
+    progressEl.textContent = `置信度 ${confidence} · 分析异常`;
+    progressEl.className = "analysis-progress failed";
+    whyEl.textContent = `原因：${item.why || "模型调用失败，无法判断"}`;
+  } else {
+    const confidence = Number(item.confidence || 0);
+    progressEl.textContent = `置信度 ${confidence}`;
+    progressEl.className = "analysis-progress done";
+    whyEl.textContent = `原因：${item.why || "-"}`;
+  }
+  const errorDetail = (item.error_detail || "").trim();
+  const copyBtn = node.querySelector(".copy-error-btn");
+  if (errorDetail) {
+    copyBtn.hidden = false;
+    copyBtn.addEventListener("click", async () => {
+      const detail = [
+        `title=${item.title || ""}`,
+        `source=${item.source_name || ""}`,
+        `time=${item.captured_at || ""}`,
+        `model_error=${errorDetail}`,
+      ].join("\n");
+      try {
+        await copyText(detail);
+        statusEl.textContent = "失败详情已复制";
+      } catch (e) {
+        statusEl.textContent = `复制失败: ${e.message}`;
+      }
+    });
+  } else {
+    copyBtn.hidden = true;
+  }
+  const persons = (item.persons || []).join(", ") || "无";
+  const publishedStr = item.published_at ? `发布: ${toLocal(item.published_at)} | ` : "";
+  node.querySelector(".meta").textContent = `人物: ${persons} | 周期: ${item.horizon} | ${publishedStr}抓取: ${toLocal(item.captured_at)}`;
+  renderTickerRow(node.querySelector(".ticker-row"), item.tickers || []);
+  node.querySelector(".link").href = item.url;
+  if (isNew) {
+    node.classList.add("new-bubble");
+    node.addEventListener("animationend", () => node.classList.remove("new-bubble"), { once: true });
+  }
+  return node;
+}
+
+function renderEvents(items) {
+  const incomingIds = new Set(items.map(i => String(i.id)));
+
+  // 首次加载：直接全量渲染，不播动画
+  if (_isFirstLoad) {
+    _isFirstLoad = false;
+    eventListEl.innerHTML = "";
+    for (const item of items) {
+      eventListEl.appendChild(buildEventNode(item, false));
+      _knownEventIds.add(String(item.id));
+    }
+    return;
+  }
+
+  // 增量更新：移除消失的条目，在顶部插入新条目，保留已有条目位置
+  const newItems = items.filter(i => !_knownEventIds.has(String(i.id)));
+  const removedIds = [..._knownEventIds].filter(id => !incomingIds.has(id));
+
+  // 移除已不在列表中的节点
+  for (const id of removedIds) {
+    const el = eventListEl.querySelector(`[data-event-id="${id}"]`);
+    if (el) el.remove();
+    _knownEventIds.delete(id);
+  }
+
+  // 在列表顶部插入新条目（带动画），并错开动画时间避免同时弹出
+  const firstChild = eventListEl.firstChild;
+  newItems.reverse().forEach((item, idx) => {
+    const node = buildEventNode(item, true);
+    node.style.animationDelay = `${idx * 80}ms`;
+    eventListEl.insertBefore(node, firstChild);
+    _knownEventIds.add(String(item.id));
+  });
 }
 
 async function loadEvents(options = {}) {
   const silent = !!options.silent;
+  const forceReset = !!options.forceReset;
   if (_loadingEvents) return;
   _loadingEvents = true;
   if (!silent) {
     statusEl.textContent = "正在加载事件...";
+  }
+  if (forceReset) {
+    _isFirstLoad = true;
+    _knownEventIds = new Set();
   }
   const sort = sortSelect ? sortSelect.value : "captured";
   try {
@@ -295,7 +338,7 @@ async function clearEventsNow() {
       return;
     }
     statusEl.textContent = `清空完成: deleted=${data.deleted}`;
-    await loadEvents();
+    await loadEvents({ forceReset: true });
   } finally {
     clearBtn.disabled = false;
   }
@@ -406,11 +449,11 @@ async function runDigest() {
 }
 
 refreshBtn.addEventListener("click", refreshNow);
-reloadBtn.addEventListener("click", loadEvents);
+reloadBtn.addEventListener("click", () => loadEvents({ forceReset: true }));
 digestBtn.addEventListener("click", runDigest);
 digestCloseBtn.addEventListener("click", () => { digestPanel.hidden = true; });
 clearBtn.addEventListener("click", clearEventsNow);
-sortSelect.addEventListener("change", loadEvents);
+sortSelect.addEventListener("change", () => loadEvents({ forceReset: true }));
 
 loadEvents().catch((e) => {
   statusEl.textContent = `加载失败: ${e.message}`;
