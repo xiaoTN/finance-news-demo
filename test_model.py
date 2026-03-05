@@ -56,7 +56,7 @@ def main():
 
     # ── 2. 基础连通（ping 模型，返回任意 JSON）──────────────
     print("\n[2] 基础连通（_call_model）")
-    from server import Analyzer
+    from analyzer import Analyzer
     analyzer = Analyzer()
 
     t0 = time.time()
