@@ -678,6 +678,87 @@ _analysis_lock = threading.Lock()
 _analysis_worker_started = False
 _analysis_enqueued_ids: set[int] = set()
 
+# 24h 快讯 digest 任务状态
+_digest_state: dict[str, Any] = {
+    "running": False,       # 是否正在生成
+    "phase": "",            # "preparing" | "analyzing" | "done" | "error"
+    "event_count": 0,       # 纳入分析的事件数
+    "elapsed": 0.0,         # 已耗时（秒）
+    "started_at": "",       # ISO 时间
+    "result": None,         # 成功时存储结果 dict
+    "error": "",            # 失败时存储错误信息
+}
+_digest_lock = threading.Lock()
+
+
+def _run_digest_async(hours: int) -> None:
+    """在后台线程执行 digest，实时更新 _digest_state。"""
+    global _digest_state
+    started = time.time()
+    with _digest_lock:
+        _digest_state.update({
+            "running": True,
+            "phase": "preparing",
+            "event_count": 0,
+            "elapsed": 0.0,
+            "started_at": utc_now_iso(),
+            "result": None,
+            "error": "",
+        })
+    try:
+        events = repo.list_recent_events(hours=hours)
+        event_count = len(events)
+        with _digest_lock:
+            _digest_state["event_count"] = event_count
+            _digest_state["elapsed"] = round(time.time() - started, 1)
+
+        if not events:
+            with _digest_lock:
+                _digest_state.update({
+                    "running": False,
+                    "phase": "done",
+                    "result": {
+                        "ok": True,
+                        "bullish": [],
+                        "bearish": [],
+                        "macro_summary": "过去24小时暂无新闻数据",
+                        "event_count": 0,
+                    },
+                    "elapsed": round(time.time() - started, 1),
+                })
+            return
+
+        with _digest_lock:
+            _digest_state["phase"] = "analyzing"
+
+        result = analyzer.digest(events)
+
+        elapsed = round(time.time() - started, 1)
+        if "error" in result:
+            with _digest_lock:
+                _digest_state.update({
+                    "running": False,
+                    "phase": "error",
+                    "error": result["error"],
+                    "elapsed": elapsed,
+                })
+        else:
+            with _digest_lock:
+                _digest_state.update({
+                    "running": False,
+                    "phase": "done",
+                    "result": {"ok": True, **result, "event_count": event_count, "time": utc_now_iso()},
+                    "elapsed": elapsed,
+                })
+    except Exception as e:
+        with _digest_lock:
+            _digest_state.update({
+                "running": False,
+                "phase": "error",
+                "error": str(e)[:500],
+                "elapsed": round(time.time() - started, 1),
+            })
+
 
 def _ensure_analysis_worker() -> None:
     global _analysis_worker_started
@@ -929,20 +1010,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(e)}, status=500)
             return
         if parsed.path == "/api/digest":
+            # 立即启动后台任务，返回已接受状态
             try:
                 body = self._read_json_body()
                 hours = int(body.get("hours", 24))
-                events = repo.list_recent_events(hours=hours)
-                if not events:
-                    self._send_json({"ok": True, "bullish": [], "bearish": [], "macro_summary": "过去24小时暂无新闻数据", "event_count": 0})
-                    return
-                result = analyzer.digest(events)
-                if "error" in result:
-                    self._send_json({"ok": False, "error": result["error"]}, status=500)
-                    return
-                self._send_json({"ok": True, **result, "event_count": len(events), "time": utc_now_iso()})
-            except Exception as e:
-                self._send_json({"ok": False, "error": str(e)}, status=500)
+            except Exception:
+                hours = 24
+            with _digest_lock:
+                already_running = _digest_state["running"]
+            if already_running:
+                self._send_json({"ok": True, "accepted": False, "reason": "already_running"})
+                return
+            t = threading.Thread(target=_run_digest_async, args=(hours,), daemon=True)
+            t.start()
+            self._send_json({"ok": True, "accepted": True})
+            return
+        if parsed.path == "/api/digest/status":
+            with _digest_lock:
+                snap = dict(_digest_state)
+            # 正在运行时实时更新 elapsed
+            if snap["running"] and snap["started_at"]:
+                try:
+                    started = dt.datetime.fromisoformat(snap["started_at"].replace("Z", "+00:00"))
+                    snap["elapsed"] = round(
+                        (dt.datetime.now(dt.timezone.utc) - started).total_seconds(), 1
+                    )
+                except Exception:
+                    pass
+            self._send_json(snap)
             return
         self._send_json({"ok": False, "error": "not found"}, status=404)
 

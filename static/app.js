@@ -347,28 +347,57 @@ async function renderDigestItems(container, items) {
 
 async function runDigest() {
   digestBtn.disabled = true;
-  statusEl.textContent = "正在生成 24h 快讯总结…";
   digestPanel.hidden = true;
+  statusEl.textContent = "24h 快讯：准备数据…";
+
   try {
-    const res = await fetch("/api/digest", {
+    // 触发后台任务
+    const triggerRes = await fetch("/api/digest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hours: 24 }),
     });
-    const data = await res.json();
-    if (!data.ok) {
-      statusEl.textContent = `总结失败: ${data.error || "unknown"}`;
+    const trigger = await triggerRes.json();
+    if (!trigger.ok) {
+      statusEl.textContent = `总结失败: ${trigger.error || "unknown"}`;
       return;
     }
-    digestMacro.textContent = data.macro_summary || "";
-    digestMeta.textContent = `基于过去 24h ${data.event_count} 条新闻`;
-    await Promise.all([
-      renderDigestItems(digestBullish, data.bullish || []),
-      renderDigestItems(digestBearish, data.bearish || []),
-    ]);
-    digestPanel.hidden = false;
-    digestPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    statusEl.textContent = `24h 总结完成，分析了 ${data.event_count} 条新闻`;
+    if (trigger.accepted === false) {
+      statusEl.textContent = "24h 快讯正在生成中，请稍候…";
+    }
+
+    // 轮询进度
+    const phaseLabel = { preparing: "准备数据", analyzing: "AI 分析中", done: "完成", error: "失败" };
+    let dotCount = 0;
+    while (true) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const statusRes = await fetch("/api/digest/status");
+      const s = await statusRes.json();
+
+      const dots = ".".repeat((dotCount++ % 3) + 1);
+      const phase = phaseLabel[s.phase] || s.phase;
+      const elapsed = s.elapsed > 0 ? `（已耗时 ${s.elapsed}s）` : "";
+      const count = s.event_count > 0 ? `，共 ${s.event_count} 条新闻` : "";
+
+      if (s.phase === "done") {
+        const data = s.result || {};
+        digestMacro.textContent = data.macro_summary || "";
+        digestMeta.textContent = `基于过去 24h ${data.event_count || 0} 条新闻`;
+        await Promise.all([
+          renderDigestItems(digestBullish, data.bullish || []),
+          renderDigestItems(digestBearish, data.bearish || []),
+        ]);
+        digestPanel.hidden = false;
+        digestPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        statusEl.textContent = `24h 总结完成，分析了 ${data.event_count || 0} 条新闻，耗时 ${s.elapsed}s`;
+        break;
+      } else if (s.phase === "error") {
+        statusEl.textContent = `24h 总结失败: ${s.error || "unknown"}`;
+        break;
+      } else {
+        statusEl.textContent = `24h 快讯：${phase}${dots}${count}${elapsed}`;
+      }
+    }
   } catch (e) {
     statusEl.textContent = `总结失败: ${e.message}`;
   } finally {
